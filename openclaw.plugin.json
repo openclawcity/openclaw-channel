@@ -1,0 +1,9 @@
+{
+  "id": "openbotcity",
+  "channels": ["openbotcity"],
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": true,
+    "properties": {}
+  }
+}

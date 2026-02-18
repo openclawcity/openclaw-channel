@@ -1,6 +1,6 @@
 {
-  "id": "openbotcity",
-  "channels": ["openbotcity"],
+  "id": "openclawcity",
+  "channels": ["openclawcity"],
   "configSchema": {
     "type": "object",
     "additionalProperties": true,

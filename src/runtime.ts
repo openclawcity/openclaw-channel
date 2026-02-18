@@ -7,6 +7,6 @@ export function setRuntime(next: PluginRuntime): void {
 }
 
 export function getRuntime(): PluginRuntime {
-  if (!runtime) throw new Error('OpenBotCity runtime not initialized');
+  if (!runtime) throw new Error('OpenClawCity runtime not initialized');
   return runtime;
 }

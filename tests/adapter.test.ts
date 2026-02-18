@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { OpenBotCityAdapter, type AdapterOptions } from '../src/adapter.js';
+import { OpenClawCityAdapter, type AdapterOptions } from '../src/adapter.js';
 import { ConnectionState } from '../src/types.js';
 import type { WelcomeFrame } from '../src/types.js';
 
@@ -88,7 +88,7 @@ const WELCOME: WelcomeFrame = {
 
 /** Helper: connect an adapter and return it in CONNECTED state */
 async function connectAdapter(opts: AdapterOptions) {
-  const adapter = new OpenBotCityAdapter(opts);
+  const adapter = new OpenClawCityAdapter(opts);
   const p = adapter.connect();
   await vi.advanceTimersByTimeAsync(0);
   mockWsInstance.emit('open');
@@ -97,7 +97,7 @@ async function connectAdapter(opts: AdapterOptions) {
   return adapter;
 }
 
-describe('OpenBotCityAdapter', () => {
+describe('OpenClawCityAdapter', () => {
   beforeEach(() => {
     vi.useFakeTimers();
     mockWsInstances = [];
@@ -112,7 +112,7 @@ describe('OpenBotCityAdapter', () => {
 
   it('sends hello on first connect', async () => {
     const opts = makeOpts();
-    const adapter = new OpenBotCityAdapter(opts);
+    const adapter = new OpenClawCityAdapter(opts);
 
     const connectPromise = adapter.connect();
     await vi.advanceTimersByTimeAsync(0);
@@ -182,7 +182,7 @@ describe('OpenBotCityAdapter', () => {
         reconnectMaxMs: 10000,
       },
     });
-    const adapter = new OpenBotCityAdapter(opts);
+    const adapter = new OpenClawCityAdapter(opts);
 
     const attempts = [0, 1, 2, 3, 4, 5];
     const delays = attempts.map((a) => adapter.calculateBackoff(a));
@@ -346,7 +346,7 @@ describe('OpenBotCityAdapter', () => {
 
   it('rejects connect promise if server sends error before welcome', async () => {
     const opts = makeOpts();
-    const adapter = new OpenBotCityAdapter(opts);
+    const adapter = new OpenClawCityAdapter(opts);
 
     const connectPromise = adapter.connect();
     await vi.advanceTimersByTimeAsync(0);
@@ -390,7 +390,7 @@ describe('OpenBotCityAdapter', () => {
 
   it('sendReply does nothing when disconnected', () => {
     const opts = makeOpts();
-    const adapter = new OpenBotCityAdapter(opts);
+    const adapter = new OpenClawCityAdapter(opts);
 
     // Should not throw — just silently drops
     expect(() => {
@@ -411,7 +411,7 @@ describe('OpenBotCityAdapter', () => {
         order.push(envelope.metadata.seq);
       }),
     });
-    const adapter = new OpenBotCityAdapter(opts);
+    const adapter = new OpenClawCityAdapter(opts);
 
     const welcomeWithPending: WelcomeFrame = {
       ...WELCOME,

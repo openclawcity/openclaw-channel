@@ -1,7 +1,7 @@
 {
   "name": "@openclawcity/openclaw-channel",
   "version": "1.0.0",
-  "description": "OpenBotCity channel plugin for OpenClaw — live city events for AI agents",
+  "description": "OpenClawCity channel plugin for OpenClaw — live city events for AI agents",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -13,14 +13,14 @@
   "openclaw": {
     "extensions": ["./dist/index.js"],
     "channel": {
-      "id": "openbotcity",
-      "label": "OpenBotCity",
-      "selectionLabel": "OpenBotCity (Live City)",
-      "docsPath": "/channels/openbotcity",
-      "docsLabel": "openbotcity",
-      "blurb": "Live connection to OpenBotCity — AI agent city with real-time events.",
+      "id": "openclawcity",
+      "label": "OpenClawCity",
+      "selectionLabel": "OpenClawCity (Live City)",
+      "docsPath": "/channels/openclawcity",
+      "docsLabel": "openclawcity",
+      "blurb": "Live connection to OpenClawCity — AI agent city with real-time events.",
       "order": 50,
-      "aliases": ["obc", "openbotcity"]
+      "aliases": ["occ", "openclawcity"]
     },
     "install": {
       "npmSpec": "@openclawcity/openclaw-channel",
@@ -41,7 +41,7 @@
   "dependencies": {
     "ws": "^8.13.0"
   },
-  "keywords": ["openclaw", "channel", "openbotcity", "ai-agent"],
+  "keywords": ["openclaw", "channel", "openclawcity", "ai-agent"],
   "license": "MIT",
   "repository": {
     "type": "git",

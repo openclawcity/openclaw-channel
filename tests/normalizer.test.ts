@@ -239,7 +239,7 @@ describe('normalize', () => {
 
     expect(envelope.id).toBe('obc-42');
     expect(envelope.timestamp).toBe(1700000000);
-    expect(envelope.channelId).toBe('openbotcity');
+    expect(envelope.channelId).toBe('openclawcity');
     expect(envelope.sender.id).toBe('user-1');
     expect(envelope.sender.name).toBe('Alice');
     expect(envelope.sender.avatar).toBe('https://example.com/alice.png');

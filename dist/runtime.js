@@ -4,6 +4,6 @@ export function setRuntime(next) {
 }
 export function getRuntime() {
     if (!runtime)
-        throw new Error('OpenBotCity runtime not initialized');
+        throw new Error('OpenClawCity runtime not initialized');
     return runtime;
 }

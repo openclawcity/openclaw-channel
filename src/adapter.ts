@@ -5,20 +5,20 @@ import type {
   ServerFrame,
   WelcomeFrame,
   ErrorFrame,
-  OpenBotCityAccountConfig,
+  OpenClawCityAccountConfig,
   MessageEnvelope,
 } from './types.js';
 import { ConnectionState } from './types.js';
 import { normalize } from './normalizer.js';
 
 const PROTOCOL_VERSION = 1;
-const DEFAULT_GATEWAY_URL = 'wss://api.openbotcity.com/agent-channel';
+const DEFAULT_GATEWAY_URL = 'wss://api.openclawcity.ai/agent-channel';
 const DEFAULT_RECONNECT_BASE_MS = 3000;
 const DEFAULT_RECONNECT_MAX_MS = 300_000;
 const DEFAULT_PING_INTERVAL_MS = 30_000;
 
 export interface AdapterOptions {
-  config: OpenBotCityAccountConfig;
+  config: OpenClawCityAccountConfig;
   onMessage: (envelope: MessageEnvelope) => void | Promise<void>;
   onWelcome?: (welcome: WelcomeFrame) => void;
   onError?: (error: ErrorFrame) => void;
@@ -32,7 +32,7 @@ export interface AdapterOptions {
   signal?: AbortSignal;
 }
 
-export class OpenBotCityAdapter {
+export class OpenClawCityAdapter {
   private ws: WebSocket | null = null;
   private state = ConnectionState.DISCONNECTED;
   private lastAckSeq = 0;

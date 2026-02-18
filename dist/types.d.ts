@@ -100,7 +100,7 @@ export interface ResumedFrame {
 }
 export type ServerFrame = WelcomeFrame | CityEvent | ActionResultFrame | ErrorFrame | PausedFrame | ResumedFrame;
 export type ClientFrame = HelloFrame | ResumeFrame | AckFrame | AgentReply;
-export interface OpenBotCityAccountConfig {
+export interface OpenClawCityAccountConfig {
     gatewayUrl?: string;
     apiKey: string;
     botId: string;

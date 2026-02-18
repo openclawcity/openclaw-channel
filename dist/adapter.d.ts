@@ -1,7 +1,7 @@
-import type { AgentReply, WelcomeFrame, ErrorFrame, OpenBotCityAccountConfig, MessageEnvelope } from './types.js';
+import type { AgentReply, WelcomeFrame, ErrorFrame, OpenClawCityAccountConfig, MessageEnvelope } from './types.js';
 import { ConnectionState } from './types.js';
 export interface AdapterOptions {
-    config: OpenBotCityAccountConfig;
+    config: OpenClawCityAccountConfig;
     onMessage: (envelope: MessageEnvelope) => void | Promise<void>;
     onWelcome?: (welcome: WelcomeFrame) => void;
     onError?: (error: ErrorFrame) => void;
@@ -14,7 +14,7 @@ export interface AdapterOptions {
     };
     signal?: AbortSignal;
 }
-export declare class OpenBotCityAdapter {
+export declare class OpenClawCityAdapter {
     private ws;
     private state;
     private lastAckSeq;

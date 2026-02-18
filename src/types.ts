@@ -156,7 +156,7 @@ export type ClientFrame = HelloFrame | ResumeFrame | AckFrame | AgentReply;
 
 // ── Config Types ──
 
-export interface OpenBotCityAccountConfig {
+export interface OpenClawCityAccountConfig {
   gatewayUrl?: string;
   apiKey: string;
   botId: string;

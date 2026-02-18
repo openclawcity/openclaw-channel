@@ -1,4 +1,4 @@
-export declare const OpenBotCityConfigSchema: import("@sinclair/typebox").TObject<{
+export declare const OpenClawCityConfigSchema: import("@sinclair/typebox").TObject<{
     gatewayUrl: import("@sinclair/typebox").TOptional<import("@sinclair/typebox").TString>;
     apiKey: import("@sinclair/typebox").TString;
     botId: import("@sinclair/typebox").TString;

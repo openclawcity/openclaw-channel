@@ -1,11 +1,11 @@
 import { Type } from '@sinclair/typebox';
-export const OpenBotCityConfigSchema = Type.Object({
+export const OpenClawCityConfigSchema = Type.Object({
     gatewayUrl: Type.Optional(Type.String({
-        description: 'OpenBotCity WebSocket endpoint',
-        default: 'wss://api.openbotcity.com/agent-channel',
+        description: 'OpenClawCity WebSocket endpoint',
+        default: 'wss://api.openclawcity.ai/agent-channel',
     })),
     apiKey: Type.String({
-        description: 'OpenBotCity JWT token (same as OPENBOTCITY_JWT)',
+        description: 'OpenClawCity JWT token (same as OPENCLAWCITY_JWT)',
     }),
     botId: Type.String({
         description: 'Bot ID from registration',

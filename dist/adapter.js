@@ -2,11 +2,11 @@ import WebSocket from 'ws';
 import { ConnectionState } from './types.js';
 import { normalize } from './normalizer.js';
 const PROTOCOL_VERSION = 1;
-const DEFAULT_GATEWAY_URL = 'wss://api.openbotcity.com/agent-channel';
+const DEFAULT_GATEWAY_URL = 'wss://api.openclawcity.ai/agent-channel';
 const DEFAULT_RECONNECT_BASE_MS = 3000;
 const DEFAULT_RECONNECT_MAX_MS = 300_000;
 const DEFAULT_PING_INTERVAL_MS = 30_000;
-export class OpenBotCityAdapter {
+export class OpenClawCityAdapter {
     ws = null;
     state = ConnectionState.DISCONNECTED;
     lastAckSeq = 0;

@@ -1,28 +1,28 @@
 import type { OpenClawPluginApi, PluginRuntime, ChannelPlugin as SDKChannelPlugin } from 'openclaw/plugin-sdk';
 import { emptyPluginConfigSchema, buildChannelConfigSchema } from 'openclaw/plugin-sdk';
 import { setRuntime, getRuntime } from './runtime.js';
-import { OpenBotCityConfigSchema } from './config-schema.js';
-import { OpenBotCityAdapter } from './adapter.js';
-import type { AgentReply, OpenBotCityAccountConfig } from './types.js';
+import { OpenClawCityConfigSchema } from './config-schema.js';
+import { OpenClawCityAdapter } from './adapter.js';
+import type { AgentReply, OpenClawCityAccountConfig } from './types.js';
 
-const CHANNEL_ID = 'openbotcity';
+const CHANNEL_ID = 'openclawcity';
 
 // Adapter instances keyed by accountId for outbound routing
-const adapters = new Map<string, OpenBotCityAdapter>();
+const adapters = new Map<string, OpenClawCityAdapter>();
 
-const obcPlugin = {
+const occPlugin = {
   id: CHANNEL_ID,
 
   meta: {
     id: CHANNEL_ID,
-    label: 'OpenBotCity',
-    selectionLabel: 'OpenBotCity (Live City)',
-    docsPath: '/channels/openbotcity',
-    blurb: 'Live connection to OpenBotCity — AI agent city with real-time events.',
-    aliases: ['obc', 'openbotcity'],
+    label: 'OpenClawCity',
+    selectionLabel: 'OpenClawCity (Live City)',
+    docsPath: '/channels/openclawcity',
+    blurb: 'Live connection to OpenClawCity — AI agent city with real-time events.',
+    aliases: ['occ', 'openclawcity'],
   },
 
-  configSchema: buildChannelConfigSchema(OpenBotCityConfigSchema),
+  configSchema: buildChannelConfigSchema(OpenClawCityConfigSchema),
 
   capabilities: {
     chatTypes: ['direct'] as const,
@@ -30,11 +30,11 @@ const obcPlugin = {
 
   config: {
     listAccountIds: (cfg: any): string[] =>
-      Object.keys(cfg.channels?.openbotcity?.accounts ?? {}),
+      Object.keys(cfg.channels?.openclawcity?.accounts ?? {}),
 
-    resolveAccount: (cfg: any, accountId?: string): OpenBotCityAccountConfig & { accountId: string } => {
-      const account = cfg.channels?.openbotcity?.accounts?.[accountId ?? 'default']
-        ?? cfg.channels?.openbotcity
+    resolveAccount: (cfg: any, accountId?: string): OpenClawCityAccountConfig & { accountId: string } => {
+      const account = cfg.channels?.openclawcity?.accounts?.[accountId ?? 'default']
+        ?? cfg.channels?.openclawcity
         ?? {};
       return { accountId: accountId ?? 'default', ...account };
     },
@@ -64,14 +64,14 @@ const obcPlugin = {
   gateway: {
     startAccount: async (ctx: {
       accountId: string;
-      config: OpenBotCityAccountConfig;
+      config: OpenClawCityAccountConfig;
       signal?: AbortSignal;
       log?: any;
     }): Promise<{ stop: () => void }> => {
       const rt = getRuntime();
       const { accountId, config, signal, log } = ctx;
 
-      const adapter = new OpenBotCityAdapter({
+      const adapter = new OpenClawCityAdapter({
         config,
         logger: log,
         signal,
@@ -96,7 +96,7 @@ const obcPlugin = {
           }
         },
         onWelcome: (welcome) => {
-          log?.info?.(`Connected to OpenBotCity. Location: ${welcome.location?.zoneName ?? 'unknown'}, Nearby: ${welcome.nearby?.length ?? 0} bots`);
+          log?.info?.(`Connected to OpenClawCity. Location: ${welcome.location?.zoneName ?? 'unknown'}, Nearby: ${welcome.nearby?.length ?? 0} bots`);
         },
         onError: (error) => {
           log?.error?.(`Server error: ${error.reason}`);
@@ -121,11 +121,11 @@ const obcPlugin = {
 
 const plugin = {
   id: CHANNEL_ID,
-  name: 'OpenBotCity Channel',
+  name: 'OpenClawCity Channel',
   configSchema: emptyPluginConfigSchema(),
   register(api: OpenClawPluginApi): void {
     setRuntime(api.runtime);
-    api.registerChannel({ plugin: obcPlugin });
+    api.registerChannel({ plugin: occPlugin });
   },
 };
 

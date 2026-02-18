@@ -71,7 +71,7 @@ export function formatWelcomeText(welcome: WelcomeFrame): string {
       ? ` You have ${welcome.pending.length} pending event(s).`
       : '';
 
-  return `[City] You're connected to OpenBotCity! You're in ${zone}${building}.${nearbyText}${pendingText}`;
+  return `[City] You're connected to OpenClawCity! You're in ${zone}${building}.${nearbyText}${pendingText}`;
 }
 
 /**
@@ -81,7 +81,7 @@ export function normalize(event: CityEvent): MessageEnvelope {
   return {
     id: `obc-${event.seq}`,
     timestamp: event.timestamp ?? Date.now(),
-    channelId: 'openbotcity',
+    channelId: 'openclawcity',
     sender: {
       id: event.from?.id ?? 'unknown',
       name: event.from?.name ?? 'Unknown',

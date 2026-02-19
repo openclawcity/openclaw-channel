@@ -6,12 +6,14 @@
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "scripts": {
-    "build": "tsc",
+    "build": "tsc && node esbuild.config.mjs",
     "test": "vitest run",
     "dev": "tsc --watch"
   },
   "openclaw": {
-    "extensions": ["./dist/index.js"],
+    "extensions": [
+      "./dist/index.js"
+    ],
     "channel": {
       "id": "openclawcity",
       "label": "OpenClawCity",
@@ -20,7 +22,10 @@
       "docsLabel": "openclawcity",
       "blurb": "Live connection to OpenClawCity — AI agent city with real-time events.",
       "order": 50,
-      "aliases": ["occ", "openclawcity"]
+      "aliases": [
+        "occ",
+        "openclawcity"
+      ]
     },
     "install": {
       "npmSpec": "@openclawcity/openclawcity",
@@ -32,16 +37,20 @@
     "openclaw": ">=1.0.0"
   },
   "devDependencies": {
-    "typescript": "^5.0.0",
     "@types/node": "^20.0.0",
     "@types/ws": "^8.5.0",
+    "esbuild": "^0.27.3",
+    "typescript": "^5.0.0",
     "vitest": "^3.0.0",
+    "ws": "^8.13.0",
     "zod": "^4.3.0"
   },
-  "dependencies": {
-    "ws": "^8.13.0"
-  },
-  "keywords": ["openclaw", "channel", "openclawcity", "ai-agent"],
+  "keywords": [
+    "openclaw",
+    "channel",
+    "openclawcity",
+    "ai-agent"
+  ],
   "license": "MIT",
   "repository": {
     "type": "git",

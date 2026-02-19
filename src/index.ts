@@ -94,14 +94,29 @@ const occPlugin = {
         logger: log,
         signal: abortSignal,
         onMessage: async (envelope) => {
-          // Build MsgContext for the OpenClaw dispatch pipeline
-          const msgCtx: MsgContext = {
+          log?.debug?.(`Dispatching event ${envelope.id} from ${envelope.sender.name} (${envelope.metadata.eventType})`);
+
+          // Step 1: Resolve agent route — determines which agent handles this
+          //         message and generates the proper sessionKey
+          const route = await rt.channel.routing.resolveAgentRoute({
+            cfg,
+            channel: CHANNEL_ID,
+            accountId,
+            chatType: 'direct',
+            peerId: envelope.sender.id,
+            senderId: envelope.sender.id,
+          });
+
+          log?.debug?.(`Route resolved for ${envelope.id}: agent=${route.agentId}, session=${route.sessionKey}`);
+
+          // Step 2: Build raw MsgContext with route-resolved sessionKey
+          const rawCtx: MsgContext = {
             Body: envelope.content.text,
             RawBody: envelope.content.text,
             CommandBody: envelope.content.text,
             From: `${CHANNEL_ID}:${envelope.sender.id}`,
             To: `${CHANNEL_ID}:${accountId}`,
-            SessionKey: `${CHANNEL_ID}:${accountId}:${envelope.sender.id}`,
+            SessionKey: route.sessionKey,
             AccountId: accountId,
             ChatType: 'direct',
             ConversationLabel: envelope.sender.name,
@@ -115,9 +130,28 @@ const occPlugin = {
             OriginatingTo: `${CHANNEL_ID}:${accountId}`,
           };
 
-          log?.debug?.(`Dispatching event ${envelope.id} from ${envelope.sender.name} (${envelope.metadata.eventType})`);
+          // Step 3: Finalize inbound context — normalizes fields,
+          //         ensures CommandAuthorized is a boolean (default-deny)
+          const msgCtx = rt.channel.reply.finalizeInboundContext(rawCtx);
 
-          // Dispatch with the correct { ctx, cfg, dispatcherOptions } signature
+          // Step 4: Record inbound session — persists session metadata so
+          //         the system knows about this message (without this,
+          //         messages are only discovered on heartbeat polling)
+          await rt.channel.session.recordInboundSession({
+            sessionKey: msgCtx.SessionKey ?? route.sessionKey,
+            ctx: msgCtx,
+            updateLastRoute: {
+              sessionKey: route.mainSessionKey ?? route.sessionKey,
+              channel: CHANNEL_ID,
+              to: `${CHANNEL_ID}:${accountId}`,
+              accountId,
+            },
+            onRecordError: (err: unknown) => {
+              log?.error?.(`Failed to record inbound session for ${envelope.id}: ${String(err)}`);
+            },
+          });
+
+          // Step 5: Dispatch — triggers the immediate agent turn
           const result = await rt.channel.reply.dispatchReplyWithBufferedBlockDispatcher({
             ctx: msgCtx,
             cfg,

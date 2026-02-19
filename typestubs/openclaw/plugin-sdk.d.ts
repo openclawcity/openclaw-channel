@@ -60,6 +60,36 @@ export interface MsgContext {
   [key: string]: unknown;
 }
 
+export interface AgentRoute {
+  agentId: string;
+  sessionKey: string;
+  mainSessionKey?: string;
+  [key: string]: unknown;
+}
+
+export interface ResolveAgentRouteParams {
+  cfg: OpenClawConfig;
+  channel: string;
+  accountId: string;
+  chatType: string;
+  peerId?: string;
+  senderId?: string;
+  [key: string]: unknown;
+}
+
+export interface RecordInboundSessionParams {
+  sessionKey: string;
+  ctx: MsgContext;
+  updateLastRoute?: {
+    sessionKey: string;
+    channel: string;
+    to: string;
+    accountId: string;
+  };
+  onRecordError?: (err: unknown) => void;
+  [key: string]: unknown;
+}
+
 export interface PluginRuntime {
   version: string;
   config: {
@@ -74,15 +104,21 @@ export interface PluginRuntime {
         dispatcherOptions: ReplyDispatcherWithTypingOptions;
         replyOptions?: Record<string, unknown>;
       }) => Promise<DispatchInboundResult>;
-      finalizeInboundContext: (...args: unknown[]) => unknown;
-      formatInboundEnvelope: (...args: unknown[]) => unknown;
+      finalizeInboundContext: (ctx: MsgContext) => MsgContext;
+      formatInboundEnvelope: (params: {
+        channel: string;
+        senderName?: string;
+        senderId?: string;
+        timestamp?: number;
+      }) => string;
       resolveEnvelopeFormatOptions: (...args: unknown[]) => unknown;
     };
     routing: {
-      resolveAgentRoute: (...args: unknown[]) => unknown;
+      resolveAgentRoute: (params: ResolveAgentRouteParams) => Promise<AgentRoute>;
     };
     session: {
-      recordInboundSession: (...args: unknown[]) => unknown;
+      recordInboundSession: (params: RecordInboundSessionParams) => Promise<void>;
+      recordSessionMetaFromInbound?: (...args: unknown[]) => Promise<void>;
       [key: string]: unknown;
     };
     [key: string]: unknown;

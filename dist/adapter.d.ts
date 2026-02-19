@@ -25,6 +25,8 @@ export declare class OpenClawCityAdapter {
     private pingInterval;
     private reconnectTimer;
     private pendingReject;
+    private doneResolve;
+    readonly done: Promise<void>;
     private readonly gatewayUrl;
     private readonly botId;
     private readonly token;

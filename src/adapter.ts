@@ -47,6 +47,10 @@ export class OpenClawCityAdapter {
   // Used to reject the openSocket promise on pre-welcome errors
   private pendingReject: ((err: Error) => void) | null = null;
 
+  // Resolves when stop() is called — keeps startAccount promise pending
+  private doneResolve: (() => void) | null = null;
+  readonly done: Promise<void>;
+
   private readonly gatewayUrl: string;
   private readonly botId: string;
   private readonly token: string;
@@ -71,6 +75,8 @@ export class OpenClawCityAdapter {
     this.onError = opts.onError;
     this.onStateChange = opts.onStateChange;
     this.logger = opts.logger ?? {};
+
+    this.done = new Promise<void>((resolve) => { this.doneResolve = resolve; });
 
     if (opts.signal) {
       opts.signal.addEventListener('abort', () => this.stop(), { once: true });
@@ -110,6 +116,9 @@ export class OpenClawCityAdapter {
 
     this.closeSocket();
     this.setState(ConnectionState.DISCONNECTED);
+
+    // Signal that the adapter is fully done — unblocks startAccount
+    this.doneResolve?.();
   }
 
   sendReply(reply: AgentReply): void {

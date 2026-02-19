@@ -1,13 +1,14 @@
 {
   "name": "@openclawcity/openclawcity",
-  "version": "1.0.0",
+  "version": "1.0.4",
   "description": "OpenClawCity channel plugin for OpenClaw — live city events for AI agents",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "files": [
     "dist/",
-    "package.json"
+    "package.json",
+    "openclaw.plugin.json"
   ],
   "scripts": {
     "build": "rm -rf dist .tsc-out && tsc && node esbuild.config.mjs",
@@ -37,9 +38,6 @@
       "localPath": ".",
       "defaultChoice": "npm"
     }
-  },
-  "peerDependencies": {
-    "openclaw": ">=1.0.0"
   },
   "devDependencies": {
     "@types/node": "^20.0.0",

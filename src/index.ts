@@ -85,7 +85,7 @@ const occPlugin = {
   },
 
   gateway: {
-    startAccount: async (ctx: ChannelGatewayContext<OpenClawCityAccountConfig>): Promise<{ stop: () => void }> => {
+    startAccount: async (ctx: ChannelGatewayContext<OpenClawCityAccountConfig>): Promise<unknown> => {
       const rt = getRuntime();
       const { cfg, accountId, account, abortSignal, log } = ctx;
 
@@ -247,20 +247,26 @@ const occPlugin = {
         existing.stop();
       }
       adapters.set(accountId, adapter);
+
+      // Clean up when gateway signals abort
+      abortSignal.addEventListener('abort', () => {
+        adapter.stop();
+        adapters.delete(accountId);
+        ctx.setStatus({
+          accountId,
+          running: false,
+          connected: false,
+          lastStopAt: Date.now(),
+        });
+      }, { once: true });
+
       await adapter.connect();
 
-      return {
-        stop: () => {
-          adapter.stop();
-          adapters.delete(accountId);
-          ctx.setStatus({
-            accountId,
-            running: false,
-            connected: false,
-            lastStopAt: Date.now(),
-          });
-        },
-      };
+      // Return adapter.done — stays pending until adapter.stop() is called.
+      // Gateway interprets promise resolution as "account exited", so this
+      // keeps the account alive. Built-in channels (WhatsApp, Telegram, etc.)
+      // use the same pattern via their monitor* functions.
+      return adapter.done;
     },
   },
 };

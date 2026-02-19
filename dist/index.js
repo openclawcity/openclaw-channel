@@ -3753,6 +3753,9 @@ var OpenClawCityAdapter = class {
   reconnectTimer = null;
   // Used to reject the openSocket promise on pre-welcome errors
   pendingReject = null;
+  // Resolves when stop() is called — keeps startAccount promise pending
+  doneResolve = null;
+  done;
   gatewayUrl;
   botId;
   token;
@@ -3776,6 +3779,9 @@ var OpenClawCityAdapter = class {
     this.onError = opts.onError;
     this.onStateChange = opts.onStateChange;
     this.logger = opts.logger ?? {};
+    this.done = new Promise((resolve) => {
+      this.doneResolve = resolve;
+    });
     if (opts.signal) {
       opts.signal.addEventListener("abort", () => this.stop(), { once: true });
     }
@@ -3808,6 +3814,7 @@ var OpenClawCityAdapter = class {
     }
     this.closeSocket();
     this.setState(ConnectionState.DISCONNECTED);
+    this.doneResolve?.();
   }
   sendReply(reply) {
     this.send(reply);
@@ -4256,19 +4263,18 @@ var occPlugin = {
         existing.stop();
       }
       adapters.set(accountId, adapter);
+      abortSignal.addEventListener("abort", () => {
+        adapter.stop();
+        adapters.delete(accountId);
+        ctx.setStatus({
+          accountId,
+          running: false,
+          connected: false,
+          lastStopAt: Date.now()
+        });
+      }, { once: true });
       await adapter.connect();
-      return {
-        stop: () => {
-          adapter.stop();
-          adapters.delete(accountId);
-          ctx.setStatus({
-            accountId,
-            running: false,
-            connected: false,
-            lastStopAt: Date.now()
-          });
-        }
-      };
+      return adapter.done;
     }
   }
 };

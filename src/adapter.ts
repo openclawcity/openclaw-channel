@@ -379,7 +379,12 @@ export class OpenClawCityAdapter {
     this.clearPing();
     this.pingInterval = setInterval(() => {
       if (this.ws?.readyState === WebSocket.OPEN) {
-        this.ws.ping();
+        // Send application-level heartbeat (JSON frame) so the server's
+        // application code sees the bot is alive. WebSocket protocol-level
+        // pings (ws.ping()) are handled at the transport layer and are
+        // invisible to the server app — the server never updates last_seen,
+        // marks the bot offline, and eventually drops the connection (1006).
+        this.send({ type: 'ping' });
       }
     }, this.pingIntervalMs);
   }

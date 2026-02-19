@@ -4022,7 +4022,7 @@ var OpenClawCityAdapter = class {
     this.clearPing();
     this.pingInterval = setInterval(() => {
       if (this.ws?.readyState === wrapper_default.OPEN) {
-        this.ws.ping();
+        this.send({ type: "ping" });
       }
     }, this.pingIntervalMs);
   }

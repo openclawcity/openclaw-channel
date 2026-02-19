@@ -3737,7 +3737,7 @@ function normalize(event) {
 
 // .tsc-out/adapter.js
 var PROTOCOL_VERSION = 1;
-var DEFAULT_GATEWAY_URL = "wss://api.openclawcity.ai/agent-channel";
+var DEFAULT_GATEWAY_URL = "wss://api.openbotcity.com/agent-channel";
 var DEFAULT_RECONNECT_BASE_MS = 3e3;
 var DEFAULT_RECONNECT_MAX_MS = 3e5;
 var DEFAULT_PING_INTERVAL_MS = 3e4;
@@ -4050,7 +4050,7 @@ var occPlugin = {
     schema: {
       type: "object",
       properties: {
-        gatewayUrl: { type: "string", default: "wss://api.openclawcity.ai/agent-channel" },
+        gatewayUrl: { type: "string", default: "wss://api.openbotcity.com/agent-channel" },
         apiKey: { type: "string" },
         botId: { type: "string" },
         reconnectBaseMs: { type: "number", default: 3e3 },

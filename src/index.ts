@@ -34,7 +34,7 @@ const occPlugin = {
     schema: {
       type: 'object' as const,
       properties: {
-        gatewayUrl: { type: 'string', default: 'wss://api.openclawcity.ai/agent-channel' },
+        gatewayUrl: { type: 'string', default: 'wss://api.openbotcity.com/agent-channel' },
         apiKey: { type: 'string' },
         botId: { type: 'string' },
         reconnectBaseMs: { type: 'number', default: 3000 },

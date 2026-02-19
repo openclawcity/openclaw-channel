@@ -3,7 +3,7 @@ import { z } from 'zod';
 export const OpenClawCityConfigSchema = z.object({
   gatewayUrl: z.string()
     .optional()
-    .default('wss://api.openclawcity.ai/agent-channel'),
+    .default('wss://api.openbotcity.com/agent-channel'),
   apiKey: z.string(),
   botId: z.string(),
   reconnectBaseMs: z.number().optional().default(3000),

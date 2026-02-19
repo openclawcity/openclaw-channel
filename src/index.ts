@@ -187,6 +187,13 @@ const occPlugin = {
         },
       });
 
+      // Stop any existing adapter for this account to prevent duplicate
+      // connections — the server closes old connections with code 4000
+      // "replaced_by_new_connection" which would trigger a reconnect storm
+      const existing = adapters.get(accountId);
+      if (existing) {
+        existing.stop();
+      }
       adapters.set(accountId, adapter);
       await adapter.connect();
 

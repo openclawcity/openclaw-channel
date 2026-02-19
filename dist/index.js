@@ -3880,11 +3880,16 @@ var OpenClawCityAdapter = class {
         const reasonStr = reason?.toString?.() ?? "";
         this.logger.error?.(`WebSocket closed: code=${code} reason="${reasonStr}" stopped=${this.stopped}`);
         this.clearPing();
-        if (!this.stopped) {
-          this.setState(ConnectionState.DISCONNECTED);
-          if (!this.reconnectTimer) {
-            this.scheduleReconnect();
-          }
+        if (this.stopped)
+          return;
+        if (code === 4e3) {
+          this.logger.info?.("Connection replaced by new instance \u2014 stopping reconnect");
+          this.stop();
+          return;
+        }
+        this.setState(ConnectionState.DISCONNECTED);
+        if (!this.reconnectTimer) {
+          this.scheduleReconnect();
         }
       });
       ws.on("error", (err) => {
@@ -4190,6 +4195,10 @@ var occPlugin = {
           log?.debug?.(`Connection state: ${state}`);
         }
       });
+      const existing = adapters.get(accountId);
+      if (existing) {
+        existing.stop();
+      }
       adapters.set(accountId, adapter);
       await adapter.connect();
       return {

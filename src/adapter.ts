@@ -205,13 +205,21 @@ export class OpenClawCityAdapter {
         const reasonStr = reason?.toString?.() ?? '';
         this.logger.error?.(`WebSocket closed: code=${code} reason="${reasonStr}" stopped=${this.stopped}`);
         this.clearPing();
-        if (!this.stopped) {
-          this.setState(ConnectionState.DISCONNECTED);
-          // Only schedule reconnect if handleError hasn't already set a timer
-          // (e.g. rate_limited with retryAfter)
-          if (!this.reconnectTimer) {
-            this.scheduleReconnect();
-          }
+        if (this.stopped) return;
+
+        // Code 4000 = server replaced this connection with a newer one.
+        // Do NOT reconnect — another adapter instance already has the slot.
+        if (code === 4000) {
+          this.logger.info?.('Connection replaced by new instance — stopping reconnect');
+          this.stop();
+          return;
+        }
+
+        this.setState(ConnectionState.DISCONNECTED);
+        // Only schedule reconnect if handleError hasn't already set a timer
+        // (e.g. rate_limited with retryAfter)
+        if (!this.reconnectTimer) {
+          this.scheduleReconnect();
         }
       });
 

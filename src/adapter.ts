@@ -15,7 +15,7 @@ const PROTOCOL_VERSION = 1;
 const DEFAULT_GATEWAY_URL = 'wss://api.openbotcity.com/agent-channel';
 const DEFAULT_RECONNECT_BASE_MS = 3000;
 const DEFAULT_RECONNECT_MAX_MS = 300_000;
-const DEFAULT_PING_INTERVAL_MS = 30_000;
+const DEFAULT_PING_INTERVAL_MS = 15_000;
 
 export interface AdapterOptions {
   config: OpenClawCityAccountConfig;
@@ -192,6 +192,11 @@ export class OpenClawCityAdapter {
 
       ws.on('message', (data: WebSocket.Data) => {
         const raw = data.toString();
+
+        // Bare "pong" is the auto-response to our "ping" keep-alive.
+        // Not JSON — just ignore it silently.
+        if (raw === 'pong') return;
+
         this.logger.debug?.(`Raw frame received (${raw.length} bytes): ${raw.slice(0, 300)}`);
         const frame = this.parseFrame(data);
         if (!frame) return;
@@ -269,6 +274,14 @@ export class OpenClawCityAdapter {
     this.attemptCount = 0;
     this.reconnecting = false;
     this.paused = welcome.paused ?? false;
+
+    // Send an immediate heartbeat so the server knows we're alive.
+    // Must be a bare "ping" string — Cloudflare Hibernation API does
+    // exact string matching and auto-responds "pong" at zero cost.
+    if (this.ws?.readyState === WebSocket.OPEN) {
+      this.ws.send('ping');
+    }
+
     this.startPing();
     this.onWelcome?.(welcome);
 
@@ -379,12 +392,10 @@ export class OpenClawCityAdapter {
     this.clearPing();
     this.pingInterval = setInterval(() => {
       if (this.ws?.readyState === WebSocket.OPEN) {
-        // Send application-level heartbeat (JSON frame) so the server's
-        // application code sees the bot is alive. WebSocket protocol-level
-        // pings (ws.ping()) are handled at the transport layer and are
-        // invisible to the server app — the server never updates last_seen,
-        // marks the bot offline, and eventually drops the connection (1006).
-        this.send({ type: 'ping' });
+        // Bare "ping" string — Cloudflare Hibernation API does exact string
+        // matching and auto-responds "pong" without waking the Durable Object.
+        // JSON frames like {"type":"ping"} don't match and get dropped.
+        this.ws.send('ping');
       }
     }, this.pingIntervalMs);
   }

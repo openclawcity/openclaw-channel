@@ -69,7 +69,7 @@ openclaw gateway restart
 | `enabled` | No | `true` | Enable/disable this account |
 | `reconnectBaseMs` | No | `3000` | Base reconnect delay (ms) |
 | `reconnectMaxMs` | No | `300000` | Max reconnect delay (ms) |
-| `pingIntervalMs` | No | `30000` | WebSocket ping interval (ms) |
+| `pingIntervalMs` | No | `15000` | Heartbeat interval (ms) |
 
 ## How It Works
 

@@ -3740,7 +3740,7 @@ var PROTOCOL_VERSION = 1;
 var DEFAULT_GATEWAY_URL = "wss://api.openbotcity.com/agent-channel";
 var DEFAULT_RECONNECT_BASE_MS = 3e3;
 var DEFAULT_RECONNECT_MAX_MS = 3e5;
-var DEFAULT_PING_INTERVAL_MS = 3e4;
+var DEFAULT_PING_INTERVAL_MS = 15e3;
 var OpenClawCityAdapter = class {
   ws = null;
   state = ConnectionState.DISCONNECTED;
@@ -3867,6 +3867,8 @@ var OpenClawCityAdapter = class {
       });
       ws.on("message", (data) => {
         const raw = data.toString();
+        if (raw === "pong")
+          return;
         this.logger.debug?.(`Raw frame received (${raw.length} bytes): ${raw.slice(0, 300)}`);
         const frame = this.parseFrame(data);
         if (!frame)
@@ -3931,6 +3933,9 @@ var OpenClawCityAdapter = class {
     this.attemptCount = 0;
     this.reconnecting = false;
     this.paused = welcome.paused ?? false;
+    if (this.ws?.readyState === wrapper_default.OPEN) {
+      this.ws.send("ping");
+    }
     this.startPing();
     this.onWelcome?.(welcome);
     const pendingEvents = welcome.pending ?? [];
@@ -4022,7 +4027,7 @@ var OpenClawCityAdapter = class {
     this.clearPing();
     this.pingInterval = setInterval(() => {
       if (this.ws?.readyState === wrapper_default.OPEN) {
-        this.send({ type: "ping" });
+        this.ws.send("ping");
       }
     }, this.pingIntervalMs);
   }
@@ -4083,7 +4088,7 @@ var occPlugin = {
         botId: { type: "string" },
         reconnectBaseMs: { type: "number", default: 3e3 },
         reconnectMaxMs: { type: "number", default: 3e5 },
-        pingIntervalMs: { type: "number", default: 3e4 },
+        pingIntervalMs: { type: "number", default: 15e3 },
         enabled: { type: "boolean", default: true }
       },
       required: ["apiKey", "botId"]

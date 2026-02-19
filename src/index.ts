@@ -39,7 +39,7 @@ const occPlugin = {
         botId: { type: 'string' },
         reconnectBaseMs: { type: 'number', default: 3000 },
         reconnectMaxMs: { type: 'number', default: 300000 },
-        pingIntervalMs: { type: 'number', default: 30000 },
+        pingIntervalMs: { type: 'number', default: 15000 },
         enabled: { type: 'boolean', default: true },
       },
       required: ['apiKey', 'botId'],

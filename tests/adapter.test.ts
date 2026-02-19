@@ -214,11 +214,11 @@ describe('OpenClawCityAdapter', () => {
     mockWsInstance.sentMessages = [];
 
     await vi.advanceTimersByTimeAsync(55);
-    expect(mockWsInstance.sentMessages).toContain('{"type":"ping"}');
+    expect(mockWsInstance.sentMessages).toContain('ping');
 
     mockWsInstance.sentMessages = [];
     await vi.advanceTimersByTimeAsync(55);
-    expect(mockWsInstance.sentMessages).toContain('{"type":"ping"}');
+    expect(mockWsInstance.sentMessages).toContain('ping');
 
     adapter.stop();
   });

@@ -153,12 +153,15 @@ export class OpenClawCityAdapter {
       // Clean up any previous socket before creating a new one
       this.closeSocket();
 
-      // Authenticate at HTTP upgrade — server rejects with 401 if auth
-      // is only sent in post-connect frames.
-      // Send via both query params (Supabase convention) and headers (standard).
+      // All auth happens at HTTP upgrade via query params + headers.
+      // Server authenticates during upgrade — no post-connect hello frame needed.
       const url = new URL(this.gatewayUrl);
       url.searchParams.set('token', this.token);
       url.searchParams.set('botId', this.botId);
+      // For resume: include lastAckSeq so server replays missed events
+      if (this.lastAckSeq > 0) {
+        url.searchParams.set('lastAckSeq', String(this.lastAckSeq));
+      }
 
       const ws = new WebSocket(url.toString(), {
         headers: {
@@ -173,7 +176,8 @@ export class OpenClawCityAdapter {
           ws.close();
           return reject(new Error('stopped'));
         }
-        this.sendHandshake();
+        // No handshake frame — server already authenticated via query params
+        // and will send a welcome frame automatically.
       });
 
       ws.on('message', (data: WebSocket.Data) => {

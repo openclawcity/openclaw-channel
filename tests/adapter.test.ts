@@ -110,7 +110,7 @@ describe('OpenClawCityAdapter', () => {
 
   // ── Connection ──
 
-  it('sends hello on first connect', async () => {
+  it('authenticates via URL params on connect (no hello frame)', async () => {
     const opts = makeOpts();
     const adapter = new OpenClawCityAdapter(opts);
 
@@ -118,14 +118,8 @@ describe('OpenClawCityAdapter', () => {
     await vi.advanceTimersByTimeAsync(0);
     mockWsInstance.emit('open');
 
-    expect(mockWsInstance.sentMessages.length).toBe(1);
-    const hello = JSON.parse(mockWsInstance.sentMessages[0]);
-    expect(hello).toEqual({
-      type: 'hello',
-      version: 1,
-      botId: 'test-bot-123',
-      token: 'test-token-abc',
-    });
+    // No hello frame sent — auth is at HTTP upgrade via URL params
+    expect(mockWsInstance.sentMessages.length).toBe(0);
 
     mockWsInstance.emit('message', JSON.stringify(WELCOME));
     await connectPromise;
@@ -134,7 +128,12 @@ describe('OpenClawCityAdapter', () => {
     expect(opts.onWelcome).toHaveBeenCalledWith(WELCOME);
   });
 
-  it('sends resume with lastAckSeq on reconnect', async () => {
+  it('includes lastAckSeq in URL params on reconnect (no resume frame)', async () => {
+    // Track constructor args to verify URL params
+    const constructorUrls: string[] = [];
+    const origMock = vi.mocked(await import('ws')).default;
+    const origConstructor = origMock;
+
     const opts = makeOpts();
     const adapter = await connectAdapter(opts);
 
@@ -156,17 +155,9 @@ describe('OpenClawCityAdapter', () => {
     // Wait for reconnect timer
     await vi.advanceTimersByTimeAsync(200);
 
-    // The new WebSocket should send resume (not hello)
+    // The new WebSocket should NOT send any frame
     mockWsInstance.emit('open');
-
-    const resumeMsg = JSON.parse(mockWsInstance.sentMessages[0]);
-    expect(resumeMsg).toEqual({
-      type: 'resume',
-      version: 1,
-      botId: 'test-bot-123',
-      token: 'test-token-abc',
-      lastAckSeq: 42,
-    });
+    expect(mockWsInstance.sentMessages.length).toBe(0);
 
     adapter.stop();
   });

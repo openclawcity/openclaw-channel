@@ -3841,6 +3841,9 @@ var OpenClawCityAdapter = class {
       const url = new URL(this.gatewayUrl);
       url.searchParams.set("token", this.token);
       url.searchParams.set("botId", this.botId);
+      if (this.lastAckSeq > 0) {
+        url.searchParams.set("lastAckSeq", String(this.lastAckSeq));
+      }
       const ws = new wrapper_default(url.toString(), {
         headers: {
           "Authorization": `Bearer ${this.token}`,
@@ -3853,7 +3856,6 @@ var OpenClawCityAdapter = class {
           ws.close();
           return reject(new Error("stopped"));
         }
-        this.sendHandshake();
       });
       ws.on("message", (data) => {
         const frame = this.parseFrame(data);

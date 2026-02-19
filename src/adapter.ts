@@ -172,6 +172,7 @@ export class OpenClawCityAdapter {
       this.ws = ws;
 
       ws.on('open', () => {
+        this.logger.debug?.('WebSocket open — waiting for server welcome');
         if (this.stopped) {
           ws.close();
           return reject(new Error('stopped'));
@@ -181,12 +182,14 @@ export class OpenClawCityAdapter {
       });
 
       ws.on('message', (data: WebSocket.Data) => {
+        const raw = data.toString();
+        this.logger.debug?.(`Raw frame received (${raw.length} bytes): ${raw.slice(0, 300)}`);
         const frame = this.parseFrame(data);
         if (!frame) return;
 
         if (frame.type === 'welcome') {
           this.pendingReject = null;
-          this.handleWelcome(frame);
+          this.handleWelcome(frame as WelcomeFrame);
           resolve();
         } else if (frame.type === 'error') {
           // Error before welcome — reject the connect promise
@@ -198,7 +201,9 @@ export class OpenClawCityAdapter {
         }
       });
 
-      ws.on('close', () => {
+      ws.on('close', (code: number, reason: Buffer) => {
+        const reasonStr = reason?.toString?.() ?? '';
+        this.logger.error?.(`WebSocket closed: code=${code} reason="${reasonStr}" stopped=${this.stopped}`);
         this.clearPing();
         if (!this.stopped) {
           this.setState(ConnectionState.DISCONNECTED);
@@ -246,13 +251,14 @@ export class OpenClawCityAdapter {
     this.setState(ConnectionState.CONNECTED);
     this.attemptCount = 0;
     this.reconnecting = false;
-    this.paused = false;
+    this.paused = welcome.paused ?? false;
     this.startPing();
     this.onWelcome?.(welcome);
 
-    // Dispatch pending events sequentially
-    if (welcome.pending?.length) {
-      this.dispatchPendingEvents(welcome.pending);
+    // Server sends pending as either `pending` (array) or `pending_items` (object)
+    const pendingEvents = welcome.pending ?? [];
+    if (pendingEvents.length) {
+      this.dispatchPendingEvents(pendingEvents);
     }
   }
 

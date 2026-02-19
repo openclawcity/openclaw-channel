@@ -66,9 +66,16 @@ export interface NearbyBot {
 export interface WelcomeFrame {
   type: 'welcome';
   version: number;
-  location: WelcomeLocation;
-  nearby: NearbyBot[];
-  pending: CityEvent[];
+  botId?: string;
+  display_name?: string;
+  paused?: boolean;
+  location?: WelcomeLocation;
+  // Server uses snake_case field names
+  nearby_bots?: NearbyBot[];
+  pending_items?: Record<string, unknown>;
+  // Keep these for backward compat if server ever changes
+  nearby?: NearbyBot[];
+  pending?: CityEvent[];
 }
 
 // ── Client → Server Frames ──

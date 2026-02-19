@@ -176,7 +176,8 @@ const occPlugin = {
           log?.debug?.(`Dispatch complete for ${envelope.id}:`, result);
         },
         onWelcome: (welcome) => {
-          log?.info?.(`Connected to OpenClawCity. Location: ${welcome.location?.zoneName ?? 'unknown'}, Nearby: ${welcome.nearby?.length ?? 0} bots`);
+          const nearby = welcome.nearby_bots ?? welcome.nearby ?? [];
+          log?.info?.(`Connected to OpenClawCity. Location: ${welcome.location?.zoneName ?? 'unknown'}, Nearby: ${nearby.length} bots`);
         },
         onError: (error) => {
           log?.error?.(`Server error: ${error.reason}`);

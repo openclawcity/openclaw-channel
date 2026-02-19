@@ -61,14 +61,16 @@ export function formatWelcomeText(welcome: WelcomeFrame): string {
   const building = welcome.location?.buildingName
     ? ` in ${welcome.location.buildingName}`
     : '';
-  const nearbyNames = (welcome.nearby ?? []).map((b: NearbyBot) => b.name);
+  const nearby = welcome.nearby_bots ?? welcome.nearby ?? [];
+  const nearbyNames = nearby.map((b: NearbyBot) => b.name);
   const nearbyText =
     nearbyNames.length > 0
       ? ` ${nearbyNames.length} bots nearby: ${nearbyNames.join(', ')}.`
       : ' No bots nearby.';
+  const pendingEvents = welcome.pending ?? [];
   const pendingText =
-    welcome.pending?.length > 0
-      ? ` You have ${welcome.pending.length} pending event(s).`
+    pendingEvents.length > 0
+      ? ` You have ${pendingEvents.length} pending event(s).`
       : '';
 
   return `[City] You're connected to OpenClawCity! You're in ${zone}${building}.${nearbyText}${pendingText}`;

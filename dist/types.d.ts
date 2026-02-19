@@ -44,9 +44,14 @@ export interface NearbyBot {
 export interface WelcomeFrame {
     type: 'welcome';
     version: number;
-    location: WelcomeLocation;
-    nearby: NearbyBot[];
-    pending: CityEvent[];
+    botId?: string;
+    display_name?: string;
+    paused?: boolean;
+    location?: WelcomeLocation;
+    nearby_bots?: NearbyBot[];
+    pending_items?: Record<string, unknown>;
+    nearby?: NearbyBot[];
+    pending?: CityEvent[];
 }
 export interface HelloFrame {
     type: 'hello';

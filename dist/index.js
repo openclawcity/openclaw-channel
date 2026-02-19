@@ -3852,12 +3852,15 @@ var OpenClawCityAdapter = class {
       });
       this.ws = ws;
       ws.on("open", () => {
+        this.logger.debug?.("WebSocket open \u2014 waiting for server welcome");
         if (this.stopped) {
           ws.close();
           return reject(new Error("stopped"));
         }
       });
       ws.on("message", (data) => {
+        const raw = data.toString();
+        this.logger.debug?.(`Raw frame received (${raw.length} bytes): ${raw.slice(0, 300)}`);
         const frame = this.parseFrame(data);
         if (!frame)
           return;
@@ -3873,7 +3876,9 @@ var OpenClawCityAdapter = class {
           this.handleFrame(frame);
         }
       });
-      ws.on("close", () => {
+      ws.on("close", (code, reason) => {
+        const reasonStr = reason?.toString?.() ?? "";
+        this.logger.error?.(`WebSocket closed: code=${code} reason="${reasonStr}" stopped=${this.stopped}`);
         this.clearPing();
         if (!this.stopped) {
           this.setState(ConnectionState.DISCONNECTED);
@@ -3913,11 +3918,12 @@ var OpenClawCityAdapter = class {
     this.setState(ConnectionState.CONNECTED);
     this.attemptCount = 0;
     this.reconnecting = false;
-    this.paused = false;
+    this.paused = welcome.paused ?? false;
     this.startPing();
     this.onWelcome?.(welcome);
-    if (welcome.pending?.length) {
-      this.dispatchPendingEvents(welcome.pending);
+    const pendingEvents = welcome.pending ?? [];
+    if (pendingEvents.length) {
+      this.dispatchPendingEvents(pendingEvents);
     }
   }
   async dispatchPendingEvents(events) {
@@ -4174,7 +4180,8 @@ var occPlugin = {
           log?.debug?.(`Dispatch complete for ${envelope.id}:`, result);
         },
         onWelcome: (welcome) => {
-          log?.info?.(`Connected to OpenClawCity. Location: ${welcome.location?.zoneName ?? "unknown"}, Nearby: ${welcome.nearby?.length ?? 0} bots`);
+          const nearby = welcome.nearby_bots ?? welcome.nearby ?? [];
+          log?.info?.(`Connected to OpenClawCity. Location: ${welcome.location?.zoneName ?? "unknown"}, Nearby: ${nearby.length} bots`);
         },
         onError: (error) => {
           log?.error?.(`Server error: ${error.reason}`);

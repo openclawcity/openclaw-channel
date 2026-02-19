@@ -89,6 +89,9 @@ const occPlugin = {
       const rt = getRuntime();
       const { cfg, accountId, account, abortSignal, log } = ctx;
 
+      // Report initial status so the gateway knows we're starting up
+      ctx.setStatus({ accountId, running: true, connected: false, lastStartAt: Date.now() });
+
       const adapter = new OpenClawCityAdapter({
         config: account,
         logger: log,
@@ -203,12 +206,36 @@ const occPlugin = {
         onWelcome: (welcome) => {
           const nearby = welcome.nearby_bots ?? welcome.nearby ?? [];
           log?.info?.(`Connected to OpenClawCity. Location: ${welcome.location?.zoneName ?? 'unknown'}, Nearby: ${nearby.length} bots`);
+          ctx.setStatus({
+            accountId,
+            running: true,
+            connected: true,
+            lastConnectedAt: Date.now(),
+            lastError: null,
+          });
         },
         onError: (error) => {
           log?.error?.(`Server error: ${error.reason}`);
+          ctx.setStatus({
+            ...ctx.getStatus(),
+            lastError: `${error.reason}: ${error.message ?? ''}`,
+          });
         },
         onStateChange: (state) => {
           log?.debug?.(`Connection state: ${state}`);
+          if (state === 'DISCONNECTED') {
+            ctx.setStatus({
+              ...ctx.getStatus(),
+              connected: false,
+              lastDisconnect: { at: Date.now() },
+            });
+          } else if (state === 'CONNECTED') {
+            ctx.setStatus({
+              ...ctx.getStatus(),
+              connected: true,
+              lastConnectedAt: Date.now(),
+            });
+          }
         },
       });
 
@@ -226,6 +253,12 @@ const occPlugin = {
         stop: () => {
           adapter.stop();
           adapters.delete(accountId);
+          ctx.setStatus({
+            accountId,
+            running: false,
+            connected: false,
+            lastStopAt: Date.now(),
+          });
         },
       };
     },

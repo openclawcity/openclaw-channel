@@ -4119,16 +4119,23 @@ var occPlugin = {
         logger: log,
         signal: abortSignal,
         onMessage: async (envelope) => {
-          log?.debug?.(`Dispatching event ${envelope.id} from ${envelope.sender.name} (${envelope.metadata.eventType})`);
-          const route = await rt.channel.routing.resolveAgentRoute({
-            cfg,
-            channel: CHANNEL_ID,
-            accountId,
-            chatType: "direct",
-            peerId: envelope.sender.id,
-            senderId: envelope.sender.id
-          });
-          log?.debug?.(`Route resolved for ${envelope.id}: agent=${route.agentId}, session=${route.sessionKey}`);
+          log?.info?.(`[OCC] Event received: ${envelope.id} from=${envelope.sender.name} type=${envelope.metadata.eventType}`);
+          log?.info?.(`[OCC] Step 1: resolveAgentRoute...`);
+          let route;
+          try {
+            route = await rt.channel.routing.resolveAgentRoute({
+              cfg,
+              channel: CHANNEL_ID,
+              accountId,
+              chatType: "direct",
+              peerId: envelope.sender.id,
+              senderId: envelope.sender.id
+            });
+            log?.info?.(`[OCC] Step 1 OK: agent=${route.agentId}, session=${route.sessionKey}`);
+          } catch (err) {
+            log?.error?.(`[OCC] Step 1 FAILED (resolveAgentRoute): ${String(err)}`);
+            throw err;
+          }
           const rawCtx = {
             Body: envelope.content.text,
             RawBody: envelope.content.text,
@@ -4148,41 +4155,65 @@ var occPlugin = {
             OriginatingChannel: CHANNEL_ID,
             OriginatingTo: `${CHANNEL_ID}:${accountId}`
           };
-          const msgCtx = rt.channel.reply.finalizeInboundContext(rawCtx);
-          await rt.channel.session.recordInboundSession({
-            sessionKey: msgCtx.SessionKey ?? route.sessionKey,
-            ctx: msgCtx,
-            updateLastRoute: {
-              sessionKey: route.mainSessionKey ?? route.sessionKey,
-              channel: CHANNEL_ID,
-              to: `${CHANNEL_ID}:${accountId}`,
-              accountId
-            },
-            onRecordError: (err) => {
-              log?.error?.(`Failed to record inbound session for ${envelope.id}: ${String(err)}`);
-            }
-          });
-          const result = await rt.channel.reply.dispatchReplyWithBufferedBlockDispatcher({
-            ctx: msgCtx,
-            cfg,
-            dispatcherOptions: {
-              deliver: async (payload) => {
-                const text = payload.text;
-                if (!text)
-                  return;
-                adapter.sendReply({
-                  type: "agent_reply",
-                  action: "dm_reply",
-                  text,
-                  conversationId: envelope.metadata.conversationId
-                });
+          log?.info?.(`[OCC] Step 2 OK: MsgContext built, SessionKey=${rawCtx.SessionKey}`);
+          log?.info?.(`[OCC] Step 3: finalizeInboundContext...`);
+          let msgCtx;
+          try {
+            msgCtx = rt.channel.reply.finalizeInboundContext(rawCtx);
+            log?.info?.(`[OCC] Step 3 OK: CommandAuthorized=${msgCtx.CommandAuthorized}`);
+          } catch (err) {
+            log?.error?.(`[OCC] Step 3 FAILED (finalizeInboundContext): ${String(err)}`);
+            throw err;
+          }
+          log?.info?.(`[OCC] Step 4: recordInboundSession...`);
+          try {
+            await rt.channel.session.recordInboundSession({
+              sessionKey: msgCtx.SessionKey ?? route.sessionKey,
+              ctx: msgCtx,
+              updateLastRoute: {
+                sessionKey: route.mainSessionKey ?? route.sessionKey,
+                channel: CHANNEL_ID,
+                to: `${CHANNEL_ID}:${accountId}`,
+                accountId
               },
-              onError: (err, info) => {
-                log?.error?.(`${CHANNEL_ID} ${info.kind} reply failed: ${String(err)}`);
+              onRecordError: (err) => {
+                log?.error?.(`[OCC] Step 4 onRecordError: ${String(err)}`);
               }
-            }
-          });
-          log?.debug?.(`Dispatch complete for ${envelope.id}:`, result);
+            });
+            log?.info?.(`[OCC] Step 4 OK: session recorded`);
+          } catch (err) {
+            log?.error?.(`[OCC] Step 4 FAILED (recordInboundSession): ${String(err)}`);
+            throw err;
+          }
+          log?.info?.(`[OCC] Step 5: dispatchReplyWithBufferedBlockDispatcher...`);
+          try {
+            const result = await rt.channel.reply.dispatchReplyWithBufferedBlockDispatcher({
+              ctx: msgCtx,
+              cfg,
+              dispatcherOptions: {
+                deliver: async (payload) => {
+                  const text = payload.text;
+                  log?.info?.(`[OCC] Deliver callback: text=${text ? text.slice(0, 80) + "..." : "(empty)"}`);
+                  if (!text)
+                    return;
+                  adapter.sendReply({
+                    type: "agent_reply",
+                    action: "dm_reply",
+                    text,
+                    conversationId: envelope.metadata.conversationId
+                  });
+                  log?.info?.(`[OCC] Reply sent via WebSocket`);
+                },
+                onError: (err, info) => {
+                  log?.error?.(`[OCC] Step 5 onError (${info.kind}): ${String(err)}`);
+                }
+              }
+            });
+            log?.info?.(`[OCC] Step 5 OK: dispatch complete`, result);
+          } catch (err) {
+            log?.error?.(`[OCC] Step 5 FAILED (dispatch): ${String(err)}`);
+            throw err;
+          }
         },
         onWelcome: (welcome) => {
           const nearby = welcome.nearby_bots ?? welcome.nearby ?? [];

@@ -94,22 +94,27 @@ const occPlugin = {
         logger: log,
         signal: abortSignal,
         onMessage: async (envelope) => {
-          log?.debug?.(`Dispatching event ${envelope.id} from ${envelope.sender.name} (${envelope.metadata.eventType})`);
+          log?.info?.(`[OCC] Event received: ${envelope.id} from=${envelope.sender.name} type=${envelope.metadata.eventType}`);
 
-          // Step 1: Resolve agent route — determines which agent handles this
-          //         message and generates the proper sessionKey
-          const route = await rt.channel.routing.resolveAgentRoute({
-            cfg,
-            channel: CHANNEL_ID,
-            accountId,
-            chatType: 'direct',
-            peerId: envelope.sender.id,
-            senderId: envelope.sender.id,
-          });
+          // Step 1: Resolve agent route
+          log?.info?.(`[OCC] Step 1: resolveAgentRoute...`);
+          let route;
+          try {
+            route = await rt.channel.routing.resolveAgentRoute({
+              cfg,
+              channel: CHANNEL_ID,
+              accountId,
+              chatType: 'direct',
+              peerId: envelope.sender.id,
+              senderId: envelope.sender.id,
+            });
+            log?.info?.(`[OCC] Step 1 OK: agent=${route.agentId}, session=${route.sessionKey}`);
+          } catch (err) {
+            log?.error?.(`[OCC] Step 1 FAILED (resolveAgentRoute): ${String(err)}`);
+            throw err;
+          }
 
-          log?.debug?.(`Route resolved for ${envelope.id}: agent=${route.agentId}, session=${route.sessionKey}`);
-
-          // Step 2: Build raw MsgContext with route-resolved sessionKey
+          // Step 2: Build raw MsgContext
           const rawCtx: MsgContext = {
             Body: envelope.content.text,
             RawBody: envelope.content.text,
@@ -129,51 +134,71 @@ const occPlugin = {
             OriginatingChannel: CHANNEL_ID,
             OriginatingTo: `${CHANNEL_ID}:${accountId}`,
           };
+          log?.info?.(`[OCC] Step 2 OK: MsgContext built, SessionKey=${rawCtx.SessionKey}`);
 
-          // Step 3: Finalize inbound context — normalizes fields,
-          //         ensures CommandAuthorized is a boolean (default-deny)
-          const msgCtx = rt.channel.reply.finalizeInboundContext(rawCtx);
+          // Step 3: Finalize inbound context
+          log?.info?.(`[OCC] Step 3: finalizeInboundContext...`);
+          let msgCtx: MsgContext;
+          try {
+            msgCtx = rt.channel.reply.finalizeInboundContext(rawCtx);
+            log?.info?.(`[OCC] Step 3 OK: CommandAuthorized=${msgCtx.CommandAuthorized}`);
+          } catch (err) {
+            log?.error?.(`[OCC] Step 3 FAILED (finalizeInboundContext): ${String(err)}`);
+            throw err;
+          }
 
-          // Step 4: Record inbound session — persists session metadata so
-          //         the system knows about this message (without this,
-          //         messages are only discovered on heartbeat polling)
-          await rt.channel.session.recordInboundSession({
-            sessionKey: msgCtx.SessionKey ?? route.sessionKey,
-            ctx: msgCtx,
-            updateLastRoute: {
-              sessionKey: route.mainSessionKey ?? route.sessionKey,
-              channel: CHANNEL_ID,
-              to: `${CHANNEL_ID}:${accountId}`,
-              accountId,
-            },
-            onRecordError: (err: unknown) => {
-              log?.error?.(`Failed to record inbound session for ${envelope.id}: ${String(err)}`);
-            },
-          });
+          // Step 4: Record inbound session
+          log?.info?.(`[OCC] Step 4: recordInboundSession...`);
+          try {
+            await rt.channel.session.recordInboundSession({
+              sessionKey: msgCtx.SessionKey ?? route.sessionKey,
+              ctx: msgCtx,
+              updateLastRoute: {
+                sessionKey: route.mainSessionKey ?? route.sessionKey,
+                channel: CHANNEL_ID,
+                to: `${CHANNEL_ID}:${accountId}`,
+                accountId,
+              },
+              onRecordError: (err: unknown) => {
+                log?.error?.(`[OCC] Step 4 onRecordError: ${String(err)}`);
+              },
+            });
+            log?.info?.(`[OCC] Step 4 OK: session recorded`);
+          } catch (err) {
+            log?.error?.(`[OCC] Step 4 FAILED (recordInboundSession): ${String(err)}`);
+            throw err;
+          }
 
           // Step 5: Dispatch — triggers the immediate agent turn
-          const result = await rt.channel.reply.dispatchReplyWithBufferedBlockDispatcher({
-            ctx: msgCtx,
-            cfg,
-            dispatcherOptions: {
-              deliver: async (payload: ReplyPayload) => {
-                const text = payload.text;
-                if (!text) return;
+          log?.info?.(`[OCC] Step 5: dispatchReplyWithBufferedBlockDispatcher...`);
+          try {
+            const result = await rt.channel.reply.dispatchReplyWithBufferedBlockDispatcher({
+              ctx: msgCtx,
+              cfg,
+              dispatcherOptions: {
+                deliver: async (payload: ReplyPayload) => {
+                  const text = payload.text;
+                  log?.info?.(`[OCC] Deliver callback: text=${text ? text.slice(0, 80) + '...' : '(empty)'}`);
+                  if (!text) return;
 
-                adapter.sendReply({
-                  type: 'agent_reply',
-                  action: 'dm_reply',
-                  text,
-                  conversationId: envelope.metadata.conversationId as string | undefined,
-                });
+                  adapter.sendReply({
+                    type: 'agent_reply',
+                    action: 'dm_reply',
+                    text,
+                    conversationId: envelope.metadata.conversationId as string | undefined,
+                  });
+                  log?.info?.(`[OCC] Reply sent via WebSocket`);
+                },
+                onError: (err, info) => {
+                  log?.error?.(`[OCC] Step 5 onError (${info.kind}): ${String(err)}`);
+                },
               },
-              onError: (err, info) => {
-                log?.error?.(`${CHANNEL_ID} ${info.kind} reply failed: ${String(err)}`);
-              },
-            },
-          });
-
-          log?.debug?.(`Dispatch complete for ${envelope.id}:`, result);
+            });
+            log?.info?.(`[OCC] Step 5 OK: dispatch complete`, result);
+          } catch (err) {
+            log?.error?.(`[OCC] Step 5 FAILED (dispatch): ${String(err)}`);
+            throw err;
+          }
         },
         onWelcome: (welcome) => {
           const nearby = welcome.nearby_bots ?? welcome.nearby ?? [];

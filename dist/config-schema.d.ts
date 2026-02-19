@@ -1,9 +1,10 @@
-export declare const OpenClawCityConfigSchema: import("@sinclair/typebox").TObject<{
-    gatewayUrl: import("@sinclair/typebox").TOptional<import("@sinclair/typebox").TString>;
-    apiKey: import("@sinclair/typebox").TString;
-    botId: import("@sinclair/typebox").TString;
-    reconnectBaseMs: import("@sinclair/typebox").TOptional<import("@sinclair/typebox").TNumber>;
-    reconnectMaxMs: import("@sinclair/typebox").TOptional<import("@sinclair/typebox").TNumber>;
-    pingIntervalMs: import("@sinclair/typebox").TOptional<import("@sinclair/typebox").TNumber>;
-    enabled: import("@sinclair/typebox").TOptional<import("@sinclair/typebox").TBoolean>;
-}>;
+import { z } from 'zod';
+export declare const OpenClawCityConfigSchema: z.ZodObject<{
+    gatewayUrl: z.ZodDefault<z.ZodOptional<z.ZodString>>;
+    apiKey: z.ZodString;
+    botId: z.ZodString;
+    reconnectBaseMs: z.ZodDefault<z.ZodOptional<z.ZodNumber>>;
+    reconnectMaxMs: z.ZodDefault<z.ZodOptional<z.ZodNumber>>;
+    pingIntervalMs: z.ZodDefault<z.ZodOptional<z.ZodNumber>>;
+    enabled: z.ZodDefault<z.ZodOptional<z.ZodBoolean>>;
+}, z.core.$strip>;

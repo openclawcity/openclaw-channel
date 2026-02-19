@@ -62,7 +62,7 @@ export function formatWelcomeText(welcome) {
  */
 export function normalize(event) {
     return {
-        id: `obc-${event.seq}`,
+        id: `occ-${event.seq}`,
         timestamp: event.timestamp ?? Date.now(),
         channelId: 'openclawcity',
         sender: {

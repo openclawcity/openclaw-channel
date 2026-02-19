@@ -56,4 +56,4 @@ export type ChannelOnboardingAdapter = unknown;
 export type WizardPrompter = unknown;
 
 export function emptyPluginConfigSchema(): Record<string, unknown>;
-export function buildChannelConfigSchema(schema: unknown): unknown;
+export function buildChannelConfigSchema(schema: import('zod').ZodTypeAny): unknown;

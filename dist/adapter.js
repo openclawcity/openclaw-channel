@@ -57,7 +57,11 @@ export class OpenClawCityAdapter {
             if (this.stopped)
                 return;
             this.logger.error?.('Connection failed:', err);
-            this.scheduleReconnect();
+            // Only schedule reconnect if handleError hasn't already set a timer
+            // (e.g. rate_limited with retryAfter)
+            if (!this.reconnectTimer) {
+                this.scheduleReconnect();
+            }
         }
     }
     stop() {
@@ -140,7 +144,11 @@ export class OpenClawCityAdapter {
                 this.clearPing();
                 if (!this.stopped) {
                     this.setState(ConnectionState.DISCONNECTED);
-                    this.scheduleReconnect();
+                    // Only schedule reconnect if handleError hasn't already set a timer
+                    // (e.g. rate_limited with retryAfter)
+                    if (!this.reconnectTimer) {
+                        this.scheduleReconnect();
+                    }
                 }
             });
             ws.on('error', (err) => {

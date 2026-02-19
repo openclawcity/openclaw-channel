@@ -29,14 +29,15 @@
     }
   },
   "peerDependencies": {
-    "openclaw": ">=1.0.0"
+    "openclaw": ">=1.0.0",
+    "zod": ">=4.0.0"
   },
   "devDependencies": {
     "typescript": "^5.0.0",
     "@types/node": "^20.0.0",
     "@types/ws": "^8.5.0",
     "vitest": "^3.0.0",
-    "@sinclair/typebox": "^0.34.0"
+    "zod": "^4.3.0"
   },
   "dependencies": {
     "ws": "^8.13.0"

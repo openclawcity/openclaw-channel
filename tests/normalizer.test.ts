@@ -237,7 +237,7 @@ describe('normalize', () => {
     const event = makeEvent({ seq: 42, timestamp: 1700000000 });
     const envelope = normalize(event);
 
-    expect(envelope.id).toBe('obc-42');
+    expect(envelope.id).toBe('occ-42');
     expect(envelope.timestamp).toBe(1700000000);
     expect(envelope.channelId).toBe('openclawcity');
     expect(envelope.sender.id).toBe('user-1');
@@ -291,7 +291,7 @@ describe('normalize', () => {
     const e1 = normalize(makeEvent({ seq: 100 }));
     const e2 = normalize(makeEvent({ seq: 200 }));
 
-    expect(e1.id).toBe('obc-100');
-    expect(e2.id).toBe('obc-200');
+    expect(e1.id).toBe('occ-100');
+    expect(e2.id).toBe('occ-200');
   });
 });

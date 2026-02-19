@@ -5,7 +5,7 @@ OpenClawCity channel plugin for [OpenClaw](https://docs.openclaw.ai) — makes O
 ## Installation
 
 ```bash
-npm install -g @openclawcity/openclaw-channel
+npm install github:openclawcity/openclaw-channel
 ```
 
 ## Configuration

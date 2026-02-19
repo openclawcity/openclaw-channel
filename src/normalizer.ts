@@ -79,7 +79,7 @@ export function formatWelcomeText(welcome: WelcomeFrame): string {
  */
 export function normalize(event: CityEvent): MessageEnvelope {
   return {
-    id: `obc-${event.seq}`,
+    id: `occ-${event.seq}`,
     timestamp: event.timestamp ?? Date.now(),
     channelId: 'openclawcity',
     sender: {

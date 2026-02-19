@@ -1,4 +1,12 @@
-import type { OpenClawPluginApi, PluginRuntime, ChannelPlugin as SDKChannelPlugin } from 'openclaw/plugin-sdk';
+import type {
+  OpenClawPluginApi,
+  PluginRuntime,
+  OpenClawConfig,
+  ChannelGatewayContext,
+  ChannelOutboundContext,
+  MsgContext,
+  ReplyPayload,
+} from 'openclaw/plugin-sdk';
 import { emptyPluginConfigSchema, buildChannelConfigSchema } from 'openclaw/plugin-sdk';
 import { setRuntime, getRuntime } from './runtime.js';
 import { OpenClawCityConfigSchema } from './config-schema.js';
@@ -29,12 +37,13 @@ const occPlugin = {
   },
 
   config: {
-    listAccountIds: (cfg: any): string[] =>
-      Object.keys(cfg.channels?.openclawcity?.accounts ?? {}),
+    listAccountIds: (cfg: OpenClawConfig): string[] =>
+      Object.keys((cfg.channels as any)?.openclawcity?.accounts ?? {}),
 
-    resolveAccount: (cfg: any, accountId?: string): OpenClawCityAccountConfig & { accountId: string } => {
-      const account = cfg.channels?.openclawcity?.accounts?.[accountId ?? 'default']
-        ?? cfg.channels?.openclawcity
+    resolveAccount: (cfg: OpenClawConfig, accountId?: string | null): OpenClawCityAccountConfig & { accountId: string } => {
+      const channels = cfg.channels as any;
+      const account = channels?.openclawcity?.accounts?.[accountId ?? 'default']
+        ?? channels?.openclawcity
         ?? {};
       return { accountId: accountId ?? 'default', ...account };
     },
@@ -43,8 +52,8 @@ const occPlugin = {
   outbound: {
     deliveryMode: 'direct' as const,
 
-    sendText: async (payload: { text: string; to?: string; accountId?: string }): Promise<{ ok: boolean }> => {
-      const adapter = adapters.get(payload.accountId ?? 'default');
+    sendText: async (ctx: ChannelOutboundContext): Promise<{ ok: boolean }> => {
+      const adapter = adapters.get(ctx.accountId ?? 'default');
       if (!adapter) {
         return { ok: false };
       }
@@ -52,8 +61,8 @@ const occPlugin = {
       const reply: AgentReply = {
         type: 'agent_reply',
         action: 'dm_reply',
-        text: payload.text,
-        conversationId: payload.to,
+        text: ctx.text,
+        conversationId: ctx.to,
       };
 
       adapter.sendReply(reply);
@@ -62,38 +71,61 @@ const occPlugin = {
   },
 
   gateway: {
-    startAccount: async (ctx: {
-      accountId: string;
-      config: OpenClawCityAccountConfig;
-      signal?: AbortSignal;
-      log?: any;
-    }): Promise<{ stop: () => void }> => {
+    startAccount: async (ctx: ChannelGatewayContext<OpenClawCityAccountConfig>): Promise<{ stop: () => void }> => {
       const rt = getRuntime();
-      const { accountId, config, signal, log } = ctx;
+      const { cfg, accountId, account, abortSignal, log } = ctx;
 
       const adapter = new OpenClawCityAdapter({
-        config,
+        config: account,
         logger: log,
-        signal,
+        signal: abortSignal,
         onMessage: async (envelope) => {
-          // Dispatch the normalized message to the OpenClaw agent via runtime
-          try {
-            await (rt as any).channel?.reply?.dispatchReplyWithBufferedBlockDispatcher?.({
-              Body: envelope.content.text,
-              From: `${CHANNEL_ID}:${envelope.sender.id}`,
-              To: `${CHANNEL_ID}:${accountId}`,
-              Provider: CHANNEL_ID,
-              Surface: CHANNEL_ID,
-              SenderId: envelope.sender.id,
-              SenderName: envelope.sender.name,
-              ChatType: 'dm',
-              AccountId: accountId,
-              MessageSid: envelope.id,
-              Timestamp: envelope.timestamp,
-            });
-          } catch (err) {
-            log?.error?.('Failed to dispatch message to gateway:', err);
-          }
+          // Build MsgContext for the OpenClaw dispatch pipeline
+          const msgCtx: MsgContext = {
+            Body: envelope.content.text,
+            RawBody: envelope.content.text,
+            CommandBody: envelope.content.text,
+            From: `${CHANNEL_ID}:${envelope.sender.id}`,
+            To: `${CHANNEL_ID}:${accountId}`,
+            SessionKey: `${CHANNEL_ID}:${accountId}:${envelope.sender.id}`,
+            AccountId: accountId,
+            ChatType: 'direct',
+            ConversationLabel: envelope.sender.name,
+            SenderName: envelope.sender.name,
+            SenderId: envelope.sender.id,
+            Provider: CHANNEL_ID,
+            Surface: CHANNEL_ID,
+            MessageSid: envelope.id,
+            Timestamp: envelope.timestamp,
+            OriginatingChannel: CHANNEL_ID,
+            OriginatingTo: `${CHANNEL_ID}:${accountId}`,
+          };
+
+          log?.debug?.(`Dispatching event ${envelope.id} from ${envelope.sender.name} (${envelope.metadata.eventType})`);
+
+          // Dispatch with the correct { ctx, cfg, dispatcherOptions } signature
+          const result = await rt.channel.reply.dispatchReplyWithBufferedBlockDispatcher({
+            ctx: msgCtx,
+            cfg,
+            dispatcherOptions: {
+              deliver: async (payload: ReplyPayload) => {
+                const text = payload.text;
+                if (!text) return;
+
+                adapter.sendReply({
+                  type: 'agent_reply',
+                  action: 'dm_reply',
+                  text,
+                  conversationId: envelope.metadata.conversationId as string | undefined,
+                });
+              },
+              onError: (err, info) => {
+                log?.error?.(`${CHANNEL_ID} ${info.kind} reply failed: ${String(err)}`);
+              },
+            },
+          });
+
+          log?.debug?.(`Dispatch complete for ${envelope.id}:`, result);
         },
         onWelcome: (welcome) => {
           log?.info?.(`Connected to OpenClawCity. Location: ${welcome.location?.zoneName ?? 'unknown'}, Nearby: ${welcome.nearby?.length ?? 0} bots`);

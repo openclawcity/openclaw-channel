@@ -153,7 +153,14 @@ export class OpenClawCityAdapter {
       // Clean up any previous socket before creating a new one
       this.closeSocket();
 
-      const ws = new WebSocket(this.gatewayUrl);
+      // Authenticate at HTTP upgrade — server rejects with 401 if auth
+      // is only sent in post-connect frames
+      const ws = new WebSocket(this.gatewayUrl, {
+        headers: {
+          'Authorization': `Bearer ${this.token}`,
+          'X-Bot-Id': this.botId,
+        },
+      });
       this.ws = ws;
 
       ws.on('open', () => {

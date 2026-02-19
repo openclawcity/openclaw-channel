@@ -3838,7 +3838,12 @@ var OpenClawCityAdapter = class {
         return reject(new Error("stopped"));
       this.pendingReject = reject;
       this.closeSocket();
-      const ws = new wrapper_default(this.gatewayUrl);
+      const ws = new wrapper_default(this.gatewayUrl, {
+        headers: {
+          "Authorization": `Bearer ${this.token}`,
+          "X-Bot-Id": this.botId
+        }
+      });
       this.ws = ws;
       ws.on("open", () => {
         if (this.stopped) {

@@ -4121,7 +4121,9 @@ var occPlugin = {
     startAccount: async (ctx) => {
       const rt = getRuntime();
       const { cfg, accountId, account, abortSignal, log } = ctx;
+      log?.info?.(`[OCC] startAccount called for ${accountId}, abortSignal.aborted=${abortSignal.aborted}`);
       ctx.setStatus({ accountId, running: true, connected: false, lastStartAt: Date.now() });
+      log?.info?.(`[OCC] setStatus: running=true, connected=false`);
       const adapter = new OpenClawCityAdapter({
         config: account,
         logger: log,
@@ -4225,7 +4227,7 @@ var occPlugin = {
         },
         onWelcome: (welcome) => {
           const nearby = welcome.nearby_bots ?? welcome.nearby ?? [];
-          log?.info?.(`Connected to OpenClawCity. Location: ${welcome.location?.zoneName ?? "unknown"}, Nearby: ${nearby.length} bots`);
+          log?.info?.(`[OCC] Connected to OpenClawCity. Location: ${welcome.location?.zoneName ?? welcome.location?.zone_name ?? "unknown"}, Nearby: ${nearby.length} bots`);
           ctx.setStatus({
             accountId,
             running: true,
@@ -4233,28 +4235,24 @@ var occPlugin = {
             lastConnectedAt: Date.now(),
             lastError: null
           });
+          log?.info?.(`[OCC] setStatus: running=true, connected=true`);
         },
         onError: (error) => {
-          log?.error?.(`Server error: ${error.reason}`);
+          log?.error?.(`[OCC] Server error: ${error.reason} \u2014 ${error.message ?? ""}`);
           ctx.setStatus({
             ...ctx.getStatus(),
             lastError: `${error.reason}: ${error.message ?? ""}`
           });
         },
         onStateChange: (state) => {
-          log?.debug?.(`Connection state: ${state}`);
-          if (state === "DISCONNECTED") {
-            ctx.setStatus({
-              ...ctx.getStatus(),
-              connected: false,
-              lastDisconnect: { at: Date.now() }
-            });
-          } else if (state === "CONNECTED") {
+          log?.info?.(`[OCC] Connection state changed: ${state}`);
+          if (state === "CONNECTED") {
             ctx.setStatus({
               ...ctx.getStatus(),
               connected: true,
               lastConnectedAt: Date.now()
             });
+            log?.info?.(`[OCC] setStatus: connected=true`);
           }
         }
       });
@@ -4263,18 +4261,32 @@ var occPlugin = {
         existing.stop();
       }
       adapters.set(accountId, adapter);
-      abortSignal.addEventListener("abort", () => {
-        adapter.stop();
-        adapters.delete(accountId);
-        ctx.setStatus({
-          accountId,
-          running: false,
-          connected: false,
-          lastStopAt: Date.now()
-        });
-      }, { once: true });
+      log?.info?.(`[OCC] adapter.connect() starting...`);
       await adapter.connect();
-      return adapter.done;
+      log?.info?.(`[OCC] adapter.connect() resolved \u2014 connection established`);
+      log?.info?.(`[OCC] Entering keep-alive promise (abortSignal.aborted=${abortSignal.aborted})`);
+      return new Promise((resolve) => {
+        const onAbort = () => {
+          log?.info?.(`[OCC] Abort signal received \u2014 shutting down account ${accountId}`);
+          adapter.stop();
+          adapters.delete(accountId);
+          ctx.setStatus({
+            accountId,
+            running: false,
+            connected: false,
+            lastStopAt: Date.now()
+          });
+          log?.info?.(`[OCC] setStatus: running=false, connected=false \u2014 resolving keep-alive promise`);
+          resolve();
+        };
+        if (abortSignal.aborted) {
+          log?.warn?.(`[OCC] Abort signal was ALREADY aborted before keep-alive \u2014 resolving immediately`);
+          onAbort();
+        } else {
+          log?.info?.(`[OCC] Keep-alive promise active \u2014 waiting for abort signal`);
+          abortSignal.addEventListener("abort", onAbort, { once: true });
+        }
+      });
     }
   }
 };

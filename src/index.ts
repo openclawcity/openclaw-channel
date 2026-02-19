@@ -89,8 +89,11 @@ const occPlugin = {
       const rt = getRuntime();
       const { cfg, accountId, account, abortSignal, log } = ctx;
 
+      log?.info?.(`[OCC] startAccount called for ${accountId}, abortSignal.aborted=${abortSignal.aborted}`);
+
       // Report initial status so the gateway knows we're starting up
       ctx.setStatus({ accountId, running: true, connected: false, lastStartAt: Date.now() });
+      log?.info?.(`[OCC] setStatus: running=true, connected=false`);
 
       const adapter = new OpenClawCityAdapter({
         config: account,
@@ -205,7 +208,7 @@ const occPlugin = {
         },
         onWelcome: (welcome) => {
           const nearby = welcome.nearby_bots ?? welcome.nearby ?? [];
-          log?.info?.(`Connected to OpenClawCity. Location: ${welcome.location?.zoneName ?? 'unknown'}, Nearby: ${nearby.length} bots`);
+          log?.info?.(`[OCC] Connected to OpenClawCity. Location: ${welcome.location?.zoneName ?? (welcome.location as any)?.zone_name ?? 'unknown'}, Nearby: ${nearby.length} bots`);
           ctx.setStatus({
             accountId,
             running: true,
@@ -213,28 +216,28 @@ const occPlugin = {
             lastConnectedAt: Date.now(),
             lastError: null,
           });
+          log?.info?.(`[OCC] setStatus: running=true, connected=true`);
         },
         onError: (error) => {
-          log?.error?.(`Server error: ${error.reason}`);
+          log?.error?.(`[OCC] Server error: ${error.reason} — ${error.message ?? ''}`);
           ctx.setStatus({
             ...ctx.getStatus(),
             lastError: `${error.reason}: ${error.message ?? ''}`,
           });
         },
         onStateChange: (state) => {
-          log?.debug?.(`Connection state: ${state}`);
-          if (state === 'DISCONNECTED') {
-            ctx.setStatus({
-              ...ctx.getStatus(),
-              connected: false,
-              lastDisconnect: { at: Date.now() },
-            });
-          } else if (state === 'CONNECTED') {
+          log?.info?.(`[OCC] Connection state changed: ${state}`);
+          // Only report CONNECTED to the gateway. Do NOT report DISCONNECTED
+          // during transient drops — the adapter reconnects internally and
+          // reporting connected:false triggers the gateway health-monitor to
+          // restart the account, fighting with our own reconnection logic.
+          if (state === 'CONNECTED') {
             ctx.setStatus({
               ...ctx.getStatus(),
               connected: true,
               lastConnectedAt: Date.now(),
             });
+            log?.info?.(`[OCC] setStatus: connected=true`);
           }
         },
       });
@@ -248,25 +251,39 @@ const occPlugin = {
       }
       adapters.set(accountId, adapter);
 
-      // Clean up when gateway signals abort
-      abortSignal.addEventListener('abort', () => {
-        adapter.stop();
-        adapters.delete(accountId);
-        ctx.setStatus({
-          accountId,
-          running: false,
-          connected: false,
-          lastStopAt: Date.now(),
-        });
-      }, { once: true });
-
+      log?.info?.(`[OCC] adapter.connect() starting...`);
       await adapter.connect();
+      log?.info?.(`[OCC] adapter.connect() resolved — connection established`);
 
-      // Return adapter.done — stays pending until adapter.stop() is called.
-      // Gateway interprets promise resolution as "account exited", so this
-      // keeps the account alive. Built-in channels (WhatsApp, Telegram, etc.)
-      // use the same pattern via their monitor* functions.
-      return adapter.done;
+      // Return a promise that stays pending until the gateway aborts.
+      // Gateway interprets promise resolution as "account exited" and triggers
+      // auto-restart. Built-in channels (WhatsApp, Telegram, etc.) use the
+      // same pattern via their monitor* functions which stay pending until
+      // intentional shutdown. This promise has NO dependency on adapter
+      // internals — only the abort signal can resolve it.
+      log?.info?.(`[OCC] Entering keep-alive promise (abortSignal.aborted=${abortSignal.aborted})`);
+      return new Promise<void>((resolve) => {
+        const onAbort = () => {
+          log?.info?.(`[OCC] Abort signal received — shutting down account ${accountId}`);
+          adapter.stop();
+          adapters.delete(accountId);
+          ctx.setStatus({
+            accountId,
+            running: false,
+            connected: false,
+            lastStopAt: Date.now(),
+          });
+          log?.info?.(`[OCC] setStatus: running=false, connected=false — resolving keep-alive promise`);
+          resolve();
+        };
+        if (abortSignal.aborted) {
+          log?.warn?.(`[OCC] Abort signal was ALREADY aborted before keep-alive — resolving immediately`);
+          onAbort();
+        } else {
+          log?.info?.(`[OCC] Keep-alive promise active — waiting for abort signal`);
+          abortSignal.addEventListener('abort', onAbort, { once: true });
+        }
+      });
     },
   },
 };

@@ -154,8 +154,13 @@ export class OpenClawCityAdapter {
       this.closeSocket();
 
       // Authenticate at HTTP upgrade — server rejects with 401 if auth
-      // is only sent in post-connect frames
-      const ws = new WebSocket(this.gatewayUrl, {
+      // is only sent in post-connect frames.
+      // Send via both query params (Supabase convention) and headers (standard).
+      const url = new URL(this.gatewayUrl);
+      url.searchParams.set('token', this.token);
+      url.searchParams.set('botId', this.botId);
+
+      const ws = new WebSocket(url.toString(), {
         headers: {
           'Authorization': `Bearer ${this.token}`,
           'X-Bot-Id': this.botId,

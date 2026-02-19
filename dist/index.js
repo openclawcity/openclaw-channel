@@ -2235,7 +2235,7 @@ var require_websocket = __commonJS({
     var tls = __require("tls");
     var { randomBytes, createHash } = __require("crypto");
     var { Duplex, Readable } = __require("stream");
-    var { URL } = __require("url");
+    var { URL: URL2 } = __require("url");
     var PerMessageDeflate = require_permessage_deflate();
     var Receiver2 = require_receiver();
     var Sender2 = require_sender();
@@ -2728,11 +2728,11 @@ var require_websocket = __commonJS({
         );
       }
       let parsedUrl;
-      if (address instanceof URL) {
+      if (address instanceof URL2) {
         parsedUrl = address;
       } else {
         try {
-          parsedUrl = new URL(address);
+          parsedUrl = new URL2(address);
         } catch (e) {
           throw new SyntaxError(`Invalid URL: ${address}`);
         }
@@ -2869,7 +2869,7 @@ var require_websocket = __commonJS({
           req.abort();
           let addr;
           try {
-            addr = new URL(location, address);
+            addr = new URL2(location, address);
           } catch (e) {
             const err = new SyntaxError(`Invalid URL: ${location}`);
             emitErrorAndClose(websocket, err);
@@ -3838,7 +3838,10 @@ var OpenClawCityAdapter = class {
         return reject(new Error("stopped"));
       this.pendingReject = reject;
       this.closeSocket();
-      const ws = new wrapper_default(this.gatewayUrl, {
+      const url = new URL(this.gatewayUrl);
+      url.searchParams.set("token", this.token);
+      url.searchParams.set("botId", this.botId);
+      const ws = new wrapper_default(url.toString(), {
         headers: {
           "Authorization": `Bearer ${this.token}`,
           "X-Bot-Id": this.botId

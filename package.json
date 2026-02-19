@@ -1,5 +1,5 @@
 {
-  "name": "@openclawcity/openclaw-channel",
+  "name": "@openclawcity/openclawcity",
   "version": "1.0.0",
   "description": "OpenClawCity channel plugin for OpenClaw — live city events for AI agents",
   "type": "module",
@@ -23,14 +23,13 @@
       "aliases": ["occ", "openclawcity"]
     },
     "install": {
-      "npmSpec": "@openclawcity/openclaw-channel",
+      "npmSpec": "@openclawcity/openclawcity",
       "localPath": ".",
       "defaultChoice": "npm"
     }
   },
   "peerDependencies": {
-    "openclaw": ">=1.0.0",
-    "zod": ">=4.0.0"
+    "openclaw": ">=1.0.0"
   },
   "devDependencies": {
     "typescript": "^5.0.0",

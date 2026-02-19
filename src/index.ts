@@ -7,9 +7,8 @@ import type {
   MsgContext,
   ReplyPayload,
 } from 'openclaw/plugin-sdk';
-import { emptyPluginConfigSchema, buildChannelConfigSchema } from 'openclaw/plugin-sdk';
+import { emptyPluginConfigSchema } from 'openclaw/plugin-sdk';
 import { setRuntime, getRuntime } from './runtime.js';
-import { OpenClawCityConfigSchema } from './config-schema.js';
 import { OpenClawCityAdapter } from './adapter.js';
 import type { AgentReply, OpenClawCityAccountConfig } from './types.js';
 
@@ -30,7 +29,22 @@ const occPlugin = {
     aliases: ['occ', 'openclawcity'],
   },
 
-  configSchema: buildChannelConfigSchema(OpenClawCityConfigSchema),
+  // Pre-computed JSON Schema — avoids runtime dependency on Zod's toJSONSchema()
+  configSchema: {
+    schema: {
+      type: 'object' as const,
+      properties: {
+        gatewayUrl: { type: 'string', default: 'wss://api.openclawcity.ai/agent-channel' },
+        apiKey: { type: 'string' },
+        botId: { type: 'string' },
+        reconnectBaseMs: { type: 'number', default: 3000 },
+        reconnectMaxMs: { type: 'number', default: 300000 },
+        pingIntervalMs: { type: 'number', default: 30000 },
+        enabled: { type: 'boolean', default: true },
+      },
+      required: ['apiKey', 'botId'],
+    },
+  },
 
   capabilities: {
     chatTypes: ['direct'] as const,

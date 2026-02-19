@@ -3,7 +3,7 @@
     "target": "ES2022",
     "module": "ESNext",
     "moduleResolution": "bundler",
-    "outDir": "./dist",
+    "outDir": "./.tsc-out",
     "rootDir": "./src",
     "strict": true,
     "esModuleInterop": true,

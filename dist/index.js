@@ -3646,10 +3646,10 @@ var require_websocket_server = __commonJS({
   }
 });
 
-// dist/index.js
+// .tsc-out/index.js
 import { emptyPluginConfigSchema } from "openclaw/plugin-sdk";
 
-// dist/runtime.js
+// .tsc-out/runtime.js
 var runtime = null;
 function setRuntime(next) {
   runtime = next;
@@ -3668,7 +3668,7 @@ var import_websocket = __toESM(require_websocket(), 1);
 var import_websocket_server = __toESM(require_websocket_server(), 1);
 var wrapper_default = import_websocket.default;
 
-// dist/types.js
+// .tsc-out/types.js
 var ConnectionState;
 (function(ConnectionState2) {
   ConnectionState2["DISCONNECTED"] = "DISCONNECTED";
@@ -3678,7 +3678,7 @@ var ConnectionState;
   ConnectionState2["FAILED"] = "FAILED";
 })(ConnectionState || (ConnectionState = {}));
 
-// dist/normalizer.js
+// .tsc-out/normalizer.js
 function formatEventText(event) {
   const name = event.from?.name ?? "Unknown";
   const text = event.text ?? "";
@@ -3735,7 +3735,7 @@ function normalize(event) {
   };
 }
 
-// dist/adapter.js
+// .tsc-out/adapter.js
 var PROTOCOL_VERSION = 1;
 var DEFAULT_GATEWAY_URL = "wss://api.openclawcity.ai/agent-channel";
 var DEFAULT_RECONNECT_BASE_MS = 3e3;
@@ -4032,7 +4032,7 @@ var OpenClawCityAdapter = class {
   }
 };
 
-// dist/index.js
+// .tsc-out/index.js
 var CHANNEL_ID = "openclawcity";
 var adapters = /* @__PURE__ */ new Map();
 var occPlugin = {

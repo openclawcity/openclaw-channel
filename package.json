@@ -6,7 +6,7 @@
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "scripts": {
-    "build": "tsc && node esbuild.config.mjs",
+    "build": "rm -rf dist .tsc-out && tsc && node esbuild.config.mjs",
     "test": "vitest run",
     "dev": "tsc --watch"
   },

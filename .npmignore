@@ -1,0 +1,12 @@
+# Only ship dist/ and package.json
+src/
+tests/
+typestubs/
+.tsc-out/
+esbuild.config.mjs
+tsconfig.json
+vitest.config.ts
+*.test.ts
+.git/
+.github/
+node_modules/

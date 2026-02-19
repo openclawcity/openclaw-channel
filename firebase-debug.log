@@ -1,0 +1,4 @@
+[debug] [2026-02-19T18:36:43.784Z] > command requires scopes: ["email","openid","https://www.googleapis.com/auth/cloudplatformprojects.readonly","https://www.googleapis.com/auth/firebase","https://www.googleapis.com/auth/cloud-platform"]
+[debug] [2026-02-19T18:36:43.785Z] > authorizing via signed-in user (vincent@getinference.com)
+[debug] [2026-02-19T18:36:43.786Z] > command requires scopes: ["email","openid","https://www.googleapis.com/auth/cloudplatformprojects.readonly","https://www.googleapis.com/auth/firebase","https://www.googleapis.com/auth/cloud-platform"]
+[debug] [2026-02-19T18:36:43.786Z] > authorizing via signed-in user (vincent@getinference.com)

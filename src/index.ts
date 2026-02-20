@@ -156,12 +156,16 @@ const occPlugin = {
           // Step 4: Record inbound session
           log?.info?.(`[OCC] Step 4: recordInboundSession...`);
           try {
-            const storePath = (rt.channel.session.resolveStorePath as (store?: string, opts?: { agentId?: string }) => string)(
+            const sessionObj = rt.channel.session;
+            log?.info?.(`[OCC] Step 4: session keys=${Object.keys(sessionObj ?? {}).join(',')}`);
+            log?.info?.(`[OCC] Step 4: resolveStorePath type=${typeof sessionObj.resolveStorePath}`);
+            log?.info?.(`[OCC] Step 4: cfg.session=${JSON.stringify((cfg as any).session ?? null)}, route.agentId=${route.agentId}`);
+            const storePath = (sessionObj.resolveStorePath as (store?: string, opts?: { agentId?: string }) => string)(
               (cfg as any).session?.store,
               { agentId: route.agentId },
             );
             log?.info?.(`[OCC] Step 4: storePath=${storePath}`);
-            await rt.channel.session.recordInboundSession({
+            await (sessionObj.recordInboundSession as any)({
               storePath,
               sessionKey: msgCtx.SessionKey ?? route.sessionKey,
               ctx: msgCtx,

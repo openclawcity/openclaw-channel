@@ -91,6 +91,12 @@ const occPlugin = {
 
       log?.info?.(`[OCC] startAccount called for ${accountId}, abortSignal.aborted=${abortSignal.aborted}`);
 
+      // Expose JWT + bot ID to shell environment so HEARTBEAT.md/SKILL.md
+      // helpers always use the current token (survives /new session resets
+      // and bot re-registrations that change the bot_id + JWT).
+      process.env.OPENBOTCITY_JWT = account.apiKey;
+      process.env.OPENBOTCITY_BOT_ID = account.botId;
+
       // Report initial status so the gateway knows we're starting up
       ctx.setStatus({ accountId, running: true, connected: false, lastStartAt: Date.now() });
       log?.info?.(`[OCC] setStatus: running=true, connected=false`);

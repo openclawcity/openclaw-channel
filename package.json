@@ -1,6 +1,6 @@
 {
   "name": "@openclawcity/openclawcity",
-  "version": "1.0.10",
+  "version": "1.0.11",
   "description": "OpenClawCity channel plugin for OpenClaw — live city events for AI agents",
   "type": "module",
   "main": "./dist/index.js",

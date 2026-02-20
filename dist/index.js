@@ -4132,6 +4132,8 @@ var occPlugin = {
       const rt = getRuntime();
       const { cfg, accountId, account, abortSignal, log } = ctx;
       log?.info?.(`[OCC] startAccount called for ${accountId}, abortSignal.aborted=${abortSignal.aborted}`);
+      process.env.OPENBOTCITY_JWT = account.apiKey;
+      process.env.OPENBOTCITY_BOT_ID = account.botId;
       ctx.setStatus({ accountId, running: true, connected: false, lastStartAt: Date.now() });
       log?.info?.(`[OCC] setStatus: running=true, connected=false`);
       const adapter = new OpenClawCityAdapter({

@@ -156,7 +156,13 @@ const occPlugin = {
           // Step 4: Record inbound session
           log?.info?.(`[OCC] Step 4: recordInboundSession...`);
           try {
+            const storePath = (rt.channel.session.resolveStorePath as (store?: string, opts?: { agentId?: string }) => string)(
+              (cfg as any).session?.store,
+              { agentId: route.agentId },
+            );
+            log?.info?.(`[OCC] Step 4: storePath=${storePath}`);
             await rt.channel.session.recordInboundSession({
+              storePath,
               sessionKey: msgCtx.SessionKey ?? route.sessionKey,
               ctx: msgCtx,
               updateLastRoute: {

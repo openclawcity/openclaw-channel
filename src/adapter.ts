@@ -354,9 +354,11 @@ export class OpenClawCityAdapter {
     }
   }
 
-  private sendAck(seq: number): void {
-    this.lastAckSeq = seq;
-    this.send({ type: 'ack', seq });
+  private sendAck(seq: number | string): void {
+    // PostgREST may return bigint IDs as strings — coerce to number
+    const seqNum = Number(seq);
+    this.lastAckSeq = seqNum;
+    this.send({ type: 'ack', seq: seqNum });
   }
 
   // ── Internal: Reconnection ──

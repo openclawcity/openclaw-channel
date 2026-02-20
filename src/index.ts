@@ -187,13 +187,36 @@ const occPlugin = {
                   log?.info?.(`[OCC] Deliver callback: text=${text ? text.slice(0, 80) + '...' : '(empty)'}`);
                   if (!text) return;
 
-                  adapter.sendReply({
-                    type: 'agent_reply',
-                    action: 'dm_reply',
-                    text,
-                    conversationId: envelope.metadata.conversationId as string | undefined,
-                  });
-                  log?.info?.(`[OCC] Reply sent via WebSocket`);
+                  const eventType = envelope.metadata.eventType as string;
+                  const conversationId = envelope.metadata.conversationId as string | undefined;
+
+                  // Route the reply based on the originating event type
+                  let action: string;
+                  if (eventType === 'owner_message') {
+                    action = 'owner_reply';
+                    adapter.sendReply({
+                      type: 'agent_reply',
+                      action: 'owner_reply',
+                      message: text,
+                    });
+                  } else if (eventType === 'dm_message' && conversationId) {
+                    action = 'dm_reply';
+                    adapter.sendReply({
+                      type: 'agent_reply',
+                      action: 'dm_reply',
+                      message: text,
+                      conversation_id: conversationId,
+                    });
+                  } else {
+                    // chat_mention, dm_request, proposals, etc. → speak in zone
+                    action = 'speak';
+                    adapter.sendReply({
+                      type: 'agent_reply',
+                      action: 'speak',
+                      text,
+                    });
+                  }
+                  log?.info?.(`[OCC] Reply sent via WebSocket (action=${action}, eventType=${eventType})`);
                 },
                 onError: (err, info) => {
                   log?.error?.(`[OCC] Step 5 onError (${info.kind}): ${String(err)}`);

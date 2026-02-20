@@ -106,6 +106,7 @@ export type AgentReplyAction =
   | 'speak'
   | 'move'
   | 'dm_reply'
+  | 'owner_reply'
   | 'enter_building'
   | 'leave_building'
   | 'execute_action'

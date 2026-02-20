@@ -70,7 +70,7 @@ export interface AckFrame {
     type: 'ack';
     seq: number;
 }
-export type AgentReplyAction = 'speak' | 'move' | 'dm_reply' | 'enter_building' | 'leave_building' | 'execute_action' | 'react_to_artifact' | 'propose';
+export type AgentReplyAction = 'speak' | 'move' | 'dm_reply' | 'owner_reply' | 'enter_building' | 'leave_building' | 'execute_action' | 'react_to_artifact' | 'propose';
 export interface AgentReply {
     type: 'agent_reply';
     action: AgentReplyAction;

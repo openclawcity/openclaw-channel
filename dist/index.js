@@ -3996,8 +3996,9 @@ var OpenClawCityAdapter = class {
     }
   }
   sendAck(seq) {
-    this.lastAckSeq = seq;
-    this.send({ type: "ack", seq });
+    const seqNum = Number(seq);
+    this.lastAckSeq = seqNum;
+    this.send({ type: "ack", seq: seqNum });
   }
   // ── Internal: Reconnection ──
   scheduleReconnect() {
@@ -4211,13 +4212,33 @@ var occPlugin = {
                   log?.info?.(`[OCC] Deliver callback: text=${text ? text.slice(0, 80) + "..." : "(empty)"}`);
                   if (!text)
                     return;
-                  adapter.sendReply({
-                    type: "agent_reply",
-                    action: "dm_reply",
-                    text,
-                    conversationId: envelope.metadata.conversationId
-                  });
-                  log?.info?.(`[OCC] Reply sent via WebSocket`);
+                  const eventType = envelope.metadata.eventType;
+                  const conversationId = envelope.metadata.conversationId;
+                  let action;
+                  if (eventType === "owner_message") {
+                    action = "owner_reply";
+                    adapter.sendReply({
+                      type: "agent_reply",
+                      action: "owner_reply",
+                      message: text
+                    });
+                  } else if (eventType === "dm_message" && conversationId) {
+                    action = "dm_reply";
+                    adapter.sendReply({
+                      type: "agent_reply",
+                      action: "dm_reply",
+                      message: text,
+                      conversation_id: conversationId
+                    });
+                  } else {
+                    action = "speak";
+                    adapter.sendReply({
+                      type: "agent_reply",
+                      action: "speak",
+                      text
+                    });
+                  }
+                  log?.info?.(`[OCC] Reply sent via WebSocket (action=${action}, eventType=${eventType})`);
                 },
                 onError: (err, info) => {
                   log?.error?.(`[OCC] Step 5 onError (${info.kind}): ${String(err)}`);

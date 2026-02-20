@@ -3869,7 +3869,7 @@ var OpenClawCityAdapter = class {
         const raw = data.toString();
         if (raw === "pong")
           return;
-        this.logger.debug?.(`Raw frame received (${raw.length} bytes): ${raw.slice(0, 300)}`);
+        this.logger.info?.(`[OCC] Raw frame received (${raw.length} bytes): ${raw.slice(0, 300)}`);
         const frame = this.parseFrame(data);
         if (!frame)
           return;
@@ -3951,6 +3951,7 @@ var OpenClawCityAdapter = class {
   handleFrame(frame) {
     switch (frame.type) {
       case "city_event":
+        this.logger.info?.(`[OCC] city_event frame: seq=${frame.seq} eventType=${frame.eventType} from=${frame.from?.name ?? "?"}`);
         void this.handleCityEvent(frame);
         break;
       case "action_result":
@@ -3968,16 +3969,19 @@ var OpenClawCityAdapter = class {
         this.logger.info?.("Bot resumed");
         break;
       default:
-        this.logger.debug?.("Unknown frame type:", frame.type);
+        this.logger.info?.(`[OCC] Unknown frame type: ${frame.type}`);
     }
   }
   async handleCityEvent(event) {
+    this.logger.info?.(`[OCC] handleCityEvent ENTER: seq=${event.seq} eventType=${event.eventType}`);
     try {
       const envelope = normalize(event);
+      this.logger.info?.(`[OCC] handleCityEvent normalized: id=${envelope.id} text=${envelope.content.text.slice(0, 80)}`);
       await this.onMessage(envelope);
+      this.logger.info?.(`[OCC] handleCityEvent onMessage OK: seq=${event.seq}`);
       this.sendAck(event.seq);
     } catch (err) {
-      this.logger.error?.("Failed to dispatch event:", err);
+      this.logger.error?.(`[OCC] handleCityEvent FAILED: seq=${event.seq} error=${String(err)}`);
       this.sendAck(event.seq);
     }
   }

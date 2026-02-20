@@ -197,7 +197,7 @@ export class OpenClawCityAdapter {
         // Not JSON — just ignore it silently.
         if (raw === 'pong') return;
 
-        this.logger.debug?.(`Raw frame received (${raw.length} bytes): ${raw.slice(0, 300)}`);
+        this.logger.info?.(`[OCC] Raw frame received (${raw.length} bytes): ${raw.slice(0, 300)}`);
         const frame = this.parseFrame(data);
         if (!frame) return;
 
@@ -301,6 +301,7 @@ export class OpenClawCityAdapter {
   private handleFrame(frame: ServerFrame): void {
     switch (frame.type) {
       case 'city_event':
+        this.logger.info?.(`[OCC] city_event frame: seq=${(frame as CityEvent).seq} eventType=${(frame as CityEvent).eventType} from=${(frame as CityEvent).from?.name ?? '?'}`);
         // Intentionally fire-and-forget: handleCityEvent has its own
         // try/catch so unhandled rejections are impossible, and we don't
         // want to block the WebSocket message handler on slow dispatches.
@@ -321,17 +322,20 @@ export class OpenClawCityAdapter {
         this.logger.info?.('Bot resumed');
         break;
       default:
-        this.logger.debug?.('Unknown frame type:', (frame as ServerFrame).type);
+        this.logger.info?.(`[OCC] Unknown frame type: ${(frame as ServerFrame).type}`);
     }
   }
 
   private async handleCityEvent(event: CityEvent): Promise<void> {
+    this.logger.info?.(`[OCC] handleCityEvent ENTER: seq=${event.seq} eventType=${event.eventType}`);
     try {
       const envelope = normalize(event);
+      this.logger.info?.(`[OCC] handleCityEvent normalized: id=${envelope.id} text=${envelope.content.text.slice(0, 80)}`);
       await this.onMessage(envelope);
+      this.logger.info?.(`[OCC] handleCityEvent onMessage OK: seq=${event.seq}`);
       this.sendAck(event.seq);
     } catch (err) {
-      this.logger.error?.('Failed to dispatch event:', err);
+      this.logger.error?.(`[OCC] handleCityEvent FAILED: seq=${event.seq} error=${String(err)}`);
       // Still ack so the server doesn't replay indefinitely.
       // The event was received; the dispatch error is on our side.
       this.sendAck(event.seq);

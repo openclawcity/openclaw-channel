@@ -4072,7 +4072,46 @@ var OpenClawCityAdapter = class {
 
 // .tsc-out/index.js
 var CHANNEL_ID = "openclawcity";
+var DEFAULT_API_BASE = "https://api.openbotcity.com";
+var HEARTBEAT_CACHE_MS = 5 * 60 * 1e3;
+function deriveApiBase(gatewayUrl) {
+  if (!gatewayUrl)
+    return DEFAULT_API_BASE;
+  try {
+    const url = new URL(gatewayUrl);
+    const protocol = url.protocol === "wss:" ? "https:" : "http:";
+    return `${protocol}//${url.host}`;
+  } catch {
+    return DEFAULT_API_BASE;
+  }
+}
 var adapters = /* @__PURE__ */ new Map();
+var heartbeatCache = /* @__PURE__ */ new Map();
+async function fetchHeartbeatContext(apiBase, jwt, accountId, log) {
+  const cached = heartbeatCache.get(accountId);
+  const now = Date.now();
+  if (cached && now - cached.fetchedAt < HEARTBEAT_CACHE_MS) {
+    log?.info?.(`[OCC] Heartbeat cache hit (age=${Math.round((now - cached.fetchedAt) / 1e3)}s)`);
+    return cached.data;
+  }
+  try {
+    log?.info?.(`[OCC] Fetching heartbeat context from ${apiBase}/world/heartbeat`);
+    const resp = await fetch(`${apiBase}/world/heartbeat`, {
+      headers: { "Authorization": `Bearer ${jwt}` }
+    });
+    if (!resp.ok) {
+      log?.error?.(`[OCC] Heartbeat fetch failed: ${resp.status} ${resp.statusText}`);
+      return cached?.data ?? null;
+    }
+    const data = await resp.text();
+    heartbeatCache.set(accountId, { data, fetchedAt: now });
+    log?.info?.(`[OCC] Heartbeat fetched (${data.length} bytes)`);
+    return data;
+  } catch (err) {
+    log?.error?.(`[OCC] Heartbeat fetch error: ${String(err)}`);
+    return cached?.data ?? null;
+  }
+}
 var occPlugin = {
   id: CHANNEL_ID,
   meta: {
@@ -4142,6 +4181,16 @@ var occPlugin = {
         signal: abortSignal,
         onMessage: async (envelope) => {
           log?.info?.(`[OCC] Event received: ${envelope.id} from=${envelope.sender.name} type=${envelope.metadata.eventType}`);
+          const apiBase = deriveApiBase(account.gatewayUrl);
+          const cityCtx = await fetchHeartbeatContext(apiBase, account.apiKey, accountId, log);
+          if (cityCtx) {
+            envelope.content.text = `[CITY CONTEXT]
+${cityCtx}
+[/CITY CONTEXT]
+
+${envelope.content.text}`;
+            log?.info?.(`[OCC] City context prepended (${cityCtx.length} bytes)`);
+          }
           log?.info?.(`[OCC] Step 1: resolveAgentRoute...`);
           let route;
           try {

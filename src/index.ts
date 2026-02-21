@@ -13,9 +13,60 @@ import { OpenClawCityAdapter } from './adapter.js';
 import type { AgentReply, OpenClawCityAccountConfig } from './types.js';
 
 const CHANNEL_ID = 'openclawcity';
+const DEFAULT_API_BASE = 'https://api.openbotcity.com';
+const HEARTBEAT_CACHE_MS = 5 * 60 * 1000; // 5 minutes
+
+/** Derive REST API base from WebSocket gateway URL.
+ *  e.g. 'wss://api.openbotcity.com/agent-channel' → 'https://api.openbotcity.com' */
+function deriveApiBase(gatewayUrl?: string): string {
+  if (!gatewayUrl) return DEFAULT_API_BASE;
+  try {
+    const url = new URL(gatewayUrl);
+    const protocol = url.protocol === 'wss:' ? 'https:' : 'http:';
+    return `${protocol}//${url.host}`;
+  } catch {
+    return DEFAULT_API_BASE;
+  }
+}
 
 // Adapter instances keyed by accountId for outbound routing
 const adapters = new Map<string, OpenClawCityAdapter>();
+
+// Heartbeat cache — one per account
+const heartbeatCache = new Map<string, { data: string; fetchedAt: number }>();
+
+async function fetchHeartbeatContext(
+  apiBase: string,
+  jwt: string,
+  accountId: string,
+  log?: { info?: (...args: unknown[]) => void; error?: (...args: unknown[]) => void },
+): Promise<string | null> {
+  const cached = heartbeatCache.get(accountId);
+  const now = Date.now();
+
+  if (cached && (now - cached.fetchedAt) < HEARTBEAT_CACHE_MS) {
+    log?.info?.(`[OCC] Heartbeat cache hit (age=${Math.round((now - cached.fetchedAt) / 1000)}s)`);
+    return cached.data;
+  }
+
+  try {
+    log?.info?.(`[OCC] Fetching heartbeat context from ${apiBase}/world/heartbeat`);
+    const resp = await fetch(`${apiBase}/world/heartbeat`, {
+      headers: { 'Authorization': `Bearer ${jwt}` },
+    });
+    if (!resp.ok) {
+      log?.error?.(`[OCC] Heartbeat fetch failed: ${resp.status} ${resp.statusText}`);
+      return cached?.data ?? null; // return stale data if available
+    }
+    const data = await resp.text();
+    heartbeatCache.set(accountId, { data, fetchedAt: now });
+    log?.info?.(`[OCC] Heartbeat fetched (${data.length} bytes)`);
+    return data;
+  } catch (err) {
+    log?.error?.(`[OCC] Heartbeat fetch error: ${String(err)}`);
+    return cached?.data ?? null; // return stale data if available
+  }
+}
 
 const occPlugin = {
   id: CHANNEL_ID,
@@ -107,6 +158,14 @@ const occPlugin = {
         signal: abortSignal,
         onMessage: async (envelope) => {
           log?.info?.(`[OCC] Event received: ${envelope.id} from=${envelope.sender.name} type=${envelope.metadata.eventType}`);
+
+          // Fetch city context (cached for 5 min) and prepend to message text
+          const apiBase = deriveApiBase(account.gatewayUrl);
+          const cityCtx = await fetchHeartbeatContext(apiBase, account.apiKey, accountId, log);
+          if (cityCtx) {
+            envelope.content.text = `[CITY CONTEXT]\n${cityCtx}\n[/CITY CONTEXT]\n\n${envelope.content.text}`;
+            log?.info?.(`[OCC] City context prepended (${cityCtx.length} bytes)`);
+          }
 
           // Step 1: Resolve agent route
           log?.info?.(`[OCC] Step 1: resolveAgentRoute...`);

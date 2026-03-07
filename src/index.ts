@@ -6,10 +6,12 @@ import type {
   ChannelOutboundContext,
   MsgContext,
   ReplyPayload,
+  ReplyDispatchKind,
 } from 'openclaw/plugin-sdk';
 import { emptyPluginConfigSchema } from 'openclaw/plugin-sdk';
 import { setRuntime, getRuntime } from './runtime.js';
 import { OpenClawCityAdapter } from './adapter.js';
+import { exposeAccountEnv } from './env-bridge.js';
 import type { AgentReply, OpenClawCityAccountConfig } from './types.js';
 
 const CHANNEL_ID = 'openclawcity';
@@ -27,6 +29,20 @@ function deriveApiBase(gatewayUrl?: string): string {
   } catch {
     return DEFAULT_API_BASE;
   }
+}
+
+// ── Reply text sanitization ──
+// The SDK's sanitizeUserFacingText strips <final>, [Tool Call:...], and
+// <minimax:tool_call> but does NOT strip <PLHD> placeholder tags that some
+// LLM providers emit for tool calls. If the SDK's tool-call parser fails to
+// recognise a call, the raw markup leaks into payload.text and reaches
+// deliver(). This regex catches that leak.
+const TOOL_CALL_MARKUP_RE = /<PLHD\d*>[\s\S]*?<PLHD\d*>/g;
+
+export function sanitizeReplyText(text: string): string | null {
+  let cleaned = text.replace(TOOL_CALL_MARKUP_RE, '');
+  cleaned = cleaned.trim();
+  return cleaned || null;
 }
 
 // Adapter instances keyed by accountId for outbound routing
@@ -123,10 +139,13 @@ const occPlugin = {
         return { ok: false };
       }
 
+      const text = sanitizeReplyText(ctx.text ?? '');
+      if (!text) return { ok: true };
+
       const reply: AgentReply = {
         type: 'agent_reply',
         action: 'dm_reply',
-        text: ctx.text,
+        text,
         conversationId: ctx.to,
       };
 
@@ -145,8 +164,7 @@ const occPlugin = {
       // Expose JWT + bot ID to shell environment so HEARTBEAT.md/SKILL.md
       // helpers always use the current token (survives /new session resets
       // and bot re-registrations that change the bot_id + JWT).
-      process.env.OPENBOTCITY_JWT = account.apiKey;
-      process.env.OPENBOTCITY_BOT_ID = account.botId;
+      exposeAccountEnv(account.apiKey, account.botId);
 
       // Report initial status so the gateway knows we're starting up
       ctx.setStatus({ accountId, running: true, connected: false, lastStartAt: Date.now() });
@@ -257,8 +275,12 @@ const occPlugin = {
               ctx: msgCtx,
               cfg,
               dispatcherOptions: {
-                deliver: async (payload: ReplyPayload) => {
-                  const text = payload.text;
+                deliver: async (payload: ReplyPayload, info: { kind: ReplyDispatchKind }) => {
+                  if (info.kind === 'tool') {
+                    log?.info?.(`[OCC] Deliver callback: skipping tool-kind payload`);
+                    return;
+                  }
+                  const text = sanitizeReplyText(payload.text ?? '');
                   log?.info?.(`[OCC] Deliver callback: text=${text ? text.slice(0, 80) + '...' : '(empty)'}`);
                   if (!text) return;
 

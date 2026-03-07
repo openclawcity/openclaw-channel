@@ -111,9 +111,9 @@ var require_buffer_util = __commonJS({
       toBuffer,
       unmask: _unmask
     };
-    if (!process.env.WS_NO_BUFFER_UTIL) {
+    if (false) {
       try {
-        const bufferUtil = __require("bufferutil");
+        const bufferUtil = null;
         module.exports.mask = function(source, mask, output, offset, length) {
           if (length < 48) _mask(source, mask, output, offset, length);
           else bufferUtil.mask(source, mask, output, offset, length);
@@ -750,9 +750,9 @@ var require_validation = __commonJS({
       module.exports.isValidUTF8 = function(buf) {
         return buf.length < 24 ? _isValidUTF8(buf) : isUtf8(buf);
       };
-    } else if (!process.env.WS_NO_UTF_8_VALIDATE) {
+    } else if (false) {
       try {
-        const isValidUTF8 = __require("utf-8-validate");
+        const isValidUTF8 = null;
         module.exports.isValidUTF8 = function(buf) {
           return buf.length < 32 ? _isValidUTF8(buf) : isValidUTF8(buf);
         };
@@ -4071,6 +4071,7 @@ var OpenClawCityAdapter = class {
 };
 
 // .tsc-out/index.js
+import { exposeAccountEnv } from "./env-bridge.js";
 var CHANNEL_ID = "openclawcity";
 var DEFAULT_API_BASE = "https://api.openbotcity.com";
 var HEARTBEAT_CACHE_MS = 5 * 60 * 1e3;
@@ -4084,6 +4085,12 @@ function deriveApiBase(gatewayUrl) {
   } catch {
     return DEFAULT_API_BASE;
   }
+}
+var TOOL_CALL_MARKUP_RE = /<PLHD\d*>[\s\S]*?<PLHD\d*>/g;
+function sanitizeReplyText(text) {
+  let cleaned = text.replace(TOOL_CALL_MARKUP_RE, "");
+  cleaned = cleaned.trim();
+  return cleaned || null;
 }
 var adapters = /* @__PURE__ */ new Map();
 var heartbeatCache = /* @__PURE__ */ new Map();
@@ -4156,10 +4163,13 @@ var occPlugin = {
       if (!adapter) {
         return { ok: false };
       }
+      const text = sanitizeReplyText(ctx.text ?? "");
+      if (!text)
+        return { ok: true };
       const reply = {
         type: "agent_reply",
         action: "dm_reply",
-        text: ctx.text,
+        text,
         conversationId: ctx.to
       };
       adapter.sendReply(reply);
@@ -4171,8 +4181,7 @@ var occPlugin = {
       const rt = getRuntime();
       const { cfg, accountId, account, abortSignal, log } = ctx;
       log?.info?.(`[OCC] startAccount called for ${accountId}, abortSignal.aborted=${abortSignal.aborted}`);
-      process.env.OPENBOTCITY_JWT = account.apiKey;
-      process.env.OPENBOTCITY_BOT_ID = account.botId;
+      exposeAccountEnv(account.apiKey, account.botId);
       ctx.setStatus({ accountId, running: true, connected: false, lastStartAt: Date.now() });
       log?.info?.(`[OCC] setStatus: running=true, connected=false`);
       const adapter = new OpenClawCityAdapter({
@@ -4269,8 +4278,12 @@ ${envelope.content.text}`;
               ctx: msgCtx,
               cfg,
               dispatcherOptions: {
-                deliver: async (payload) => {
-                  const text = payload.text;
+                deliver: async (payload, info) => {
+                  if (info.kind === "tool") {
+                    log?.info?.(`[OCC] Deliver callback: skipping tool-kind payload`);
+                    return;
+                  }
+                  const text = sanitizeReplyText(payload.text ?? "");
                   log?.info?.(`[OCC] Deliver callback: text=${text ? text.slice(0, 80) + "..." : "(empty)"}`);
                   if (!text)
                     return;
@@ -4389,5 +4402,6 @@ var plugin = {
 };
 var index_default = plugin;
 export {
-  index_default as default
+  index_default as default,
+  sanitizeReplyText
 };

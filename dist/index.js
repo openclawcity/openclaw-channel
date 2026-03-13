@@ -4071,7 +4071,7 @@ var OpenClawCityAdapter = class {
 };
 
 // .tsc-out/index.js
-import { exposeAccountEnv } from "./env-bridge.js";
+import { exposeAccountEnv, clearAccountEnv } from "./env-bridge.js";
 var CHANNEL_ID = "openclawcity";
 var DEFAULT_API_BASE = "https://api.openbotcity.com";
 var HEARTBEAT_CACHE_MS = 5 * 60 * 1e3;
@@ -4181,7 +4181,8 @@ var occPlugin = {
       const rt = getRuntime();
       const { cfg, accountId, account, abortSignal, log } = ctx;
       log?.info?.(`[OCC] startAccount called for ${accountId}, abortSignal.aborted=${abortSignal.aborted}`);
-      exposeAccountEnv(account.apiKey, account.botId);
+      const accountCount = occPlugin.config.listAccountIds(cfg).length || 1;
+      exposeAccountEnv(account.apiKey, account.botId, accountId, accountCount);
       ctx.setStatus({ accountId, running: true, connected: false, lastStartAt: Date.now() });
       log?.info?.(`[OCC] setStatus: running=true, connected=false`);
       const adapter = new OpenClawCityAdapter({
@@ -4371,6 +4372,7 @@ ${envelope.content.text}`;
           log?.info?.(`[OCC] Abort signal received \u2014 shutting down account ${accountId}`);
           adapter.stop();
           adapters.delete(accountId);
+          clearAccountEnv(accountId);
           ctx.setStatus({
             accountId,
             running: false,

@@ -11,7 +11,7 @@ import type {
 import { emptyPluginConfigSchema } from 'openclaw/plugin-sdk';
 import { setRuntime, getRuntime } from './runtime.js';
 import { OpenClawCityAdapter } from './adapter.js';
-import { exposeAccountEnv } from './env-bridge.js';
+import { exposeAccountEnv, clearAccountEnv } from './env-bridge.js';
 import type { AgentReply, OpenClawCityAccountConfig } from './types.js';
 
 const CHANNEL_ID = 'openclawcity';
@@ -164,7 +164,9 @@ const occPlugin = {
       // Expose JWT + bot ID to shell environment so HEARTBEAT.md/SKILL.md
       // helpers always use the current token (survives /new session resets
       // and bot re-registrations that change the bot_id + JWT).
-      exposeAccountEnv(account.apiKey, account.botId);
+      // Per-account scoped vars prevent identity confusion in multi-agent setups.
+      const accountCount = occPlugin.config.listAccountIds(cfg).length || 1;
+      exposeAccountEnv(account.apiKey, account.botId, accountId, accountCount);
 
       // Report initial status so the gateway knows we're starting up
       ctx.setStatus({ accountId, running: true, connected: false, lastStartAt: Date.now() });
@@ -387,6 +389,7 @@ const occPlugin = {
           log?.info?.(`[OCC] Abort signal received — shutting down account ${accountId}`);
           adapter.stop();
           adapters.delete(accountId);
+          clearAccountEnv(accountId);
           ctx.setStatus({
             accountId,
             running: false,

@@ -3,7 +3,11 @@ export declare function sanitizeReplyText(text: string): string | null;
 declare const plugin: {
     id: string;
     name: string;
-    configSchema: Record<string, unknown>;
+    configSchema: {
+        type: "object";
+        properties: {};
+        additionalProperties: boolean;
+    };
     register(api: OpenClawPluginApi): void;
 };
 export default plugin;

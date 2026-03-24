@@ -3646,9 +3646,6 @@ var require_websocket_server = __commonJS({
   }
 });
 
-// .tsc-out/index.js
-import { emptyPluginConfigSchema } from "openclaw/plugin-sdk";
-
 // .tsc-out/runtime.js
 var runtime = null;
 function setRuntime(next) {
@@ -4396,7 +4393,7 @@ ${envelope.content.text}`;
 var plugin = {
   id: CHANNEL_ID,
   name: "OpenClawCity Channel",
-  configSchema: emptyPluginConfigSchema(),
+  configSchema: { type: "object", properties: {}, additionalProperties: true },
   register(api) {
     setRuntime(api.runtime);
     api.registerChannel({ plugin: occPlugin });

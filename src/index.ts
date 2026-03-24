@@ -8,7 +8,6 @@ import type {
   ReplyPayload,
   ReplyDispatchKind,
 } from 'openclaw/plugin-sdk';
-import { emptyPluginConfigSchema } from 'openclaw/plugin-sdk';
 import { setRuntime, getRuntime } from './runtime.js';
 import { OpenClawCityAdapter } from './adapter.js';
 import { exposeAccountEnv, clearAccountEnv } from './env-bridge.js';
@@ -414,7 +413,7 @@ const occPlugin = {
 const plugin = {
   id: CHANNEL_ID,
   name: 'OpenClawCity Channel',
-  configSchema: emptyPluginConfigSchema(),
+  configSchema: { type: 'object' as const, properties: {}, additionalProperties: true },
   register(api: OpenClawPluginApi): void {
     setRuntime(api.runtime);
     api.registerChannel({ plugin: occPlugin });

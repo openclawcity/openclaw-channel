@@ -4069,9 +4069,22 @@ var OpenClawCityAdapter = class {
 
 // .tsc-out/index.js
 import { exposeAccountEnv, clearAccountEnv } from "./env-bridge.js";
+
+// .tsc-out/context-dedup.js
+function shouldInjectCityContext(state, key, ctx, now, windowMs) {
+  const prev = state.get(key);
+  const inject = !prev || now - prev.at >= windowMs || prev.ctx !== ctx;
+  if (inject) {
+    state.set(key, { at: now, ctx });
+  }
+  return inject;
+}
+
+// .tsc-out/index.js
 var CHANNEL_ID = "openclawcity";
 var DEFAULT_API_BASE = "https://api.openbotcity.com";
 var HEARTBEAT_CACHE_MS = 5 * 60 * 1e3;
+var CONTEXT_REINJECT_WINDOW_MS = 60 * 1e3;
 function deriveApiBase(gatewayUrl) {
   if (!gatewayUrl)
     return DEFAULT_API_BASE;
@@ -4091,6 +4104,7 @@ function sanitizeReplyText(text) {
 }
 var adapters = /* @__PURE__ */ new Map();
 var heartbeatCache = /* @__PURE__ */ new Map();
+var contextInjectionState = /* @__PURE__ */ new Map();
 async function fetchHeartbeatContext(apiBase, jwt, accountId, log) {
   const cached = heartbeatCache.get(accountId);
   const now = Date.now();
@@ -4191,12 +4205,17 @@ var occPlugin = {
           const apiBase = deriveApiBase(account.gatewayUrl);
           const cityCtx = await fetchHeartbeatContext(apiBase, account.apiKey, accountId, log);
           if (cityCtx) {
-            envelope.content.text = `[CITY CONTEXT]
+            const dedupKey = `${accountId}:${envelope.sender.id}`;
+            if (shouldInjectCityContext(contextInjectionState, dedupKey, cityCtx, Date.now(), CONTEXT_REINJECT_WINDOW_MS)) {
+              envelope.content.text = `[CITY CONTEXT]
 ${cityCtx}
 [/CITY CONTEXT]
 
 ${envelope.content.text}`;
-            log?.info?.(`[OCC] City context prepended (${cityCtx.length} bytes)`);
+              log?.info?.(`[OCC] City context prepended (${cityCtx.length} bytes)`);
+            } else {
+              log?.info?.(`[OCC] City context skipped (recent + unchanged) for ${dedupKey}`);
+            }
           }
           log?.info?.(`[OCC] Step 1: resolveAgentRoute...`);
           let route;

@@ -12,10 +12,15 @@ import { setRuntime, getRuntime } from './runtime.js';
 import { OpenClawCityAdapter } from './adapter.js';
 import { exposeAccountEnv, clearAccountEnv } from './env-bridge.js';
 import type { AgentReply, OpenClawCityAccountConfig } from './types.js';
+import { shouldInjectCityContext, type ContextInjectionRecord } from './context-dedup.js';
 
 const CHANNEL_ID = 'openclawcity';
 const DEFAULT_API_BASE = 'https://api.openbotcity.com';
 const HEARTBEAT_CACHE_MS = 5 * 60 * 1000; // 5 minutes
+// Suppress re-prepending the (cached, identical) city-context snapshot for the
+// same conversation within this window — kills the bulky repeat on event bursts
+// without losing information. See context-dedup.ts.
+const CONTEXT_REINJECT_WINDOW_MS = 60 * 1000; // 60 seconds
 
 /** Derive REST API base from WebSocket gateway URL.
  *  e.g. 'wss://api.openbotcity.com/agent-channel' → 'https://api.openbotcity.com' */
@@ -49,6 +54,10 @@ const adapters = new Map<string, OpenClawCityAdapter>();
 
 // Heartbeat cache — one per account
 const heartbeatCache = new Map<string, { data: string; fetchedAt: number }>();
+
+// City-context injection bookkeeping — keyed per (account, peer) so repeated
+// events in one conversation don't re-prepend the identical snapshot.
+const contextInjectionState = new Map<string, ContextInjectionRecord>();
 
 async function fetchHeartbeatContext(
   apiBase: string,
@@ -178,12 +187,20 @@ const occPlugin = {
         onMessage: async (envelope) => {
           log?.info?.(`[OCC] Event received: ${envelope.id} from=${envelope.sender.name} type=${envelope.metadata.eventType}`);
 
-          // Fetch city context (cached for 5 min) and prepend to message text
+          // Fetch city context (cached for 5 min) and prepend to message text —
+          // but only once per conversation per window. The snapshot is identical
+          // within the cache window, so re-prepending it on every burst event just
+          // bloats the agent's history (Aaga loop, 2026-06-30) with no new info.
           const apiBase = deriveApiBase(account.gatewayUrl);
           const cityCtx = await fetchHeartbeatContext(apiBase, account.apiKey, accountId, log);
           if (cityCtx) {
-            envelope.content.text = `[CITY CONTEXT]\n${cityCtx}\n[/CITY CONTEXT]\n\n${envelope.content.text}`;
-            log?.info?.(`[OCC] City context prepended (${cityCtx.length} bytes)`);
+            const dedupKey = `${accountId}:${envelope.sender.id}`;
+            if (shouldInjectCityContext(contextInjectionState, dedupKey, cityCtx, Date.now(), CONTEXT_REINJECT_WINDOW_MS)) {
+              envelope.content.text = `[CITY CONTEXT]\n${cityCtx}\n[/CITY CONTEXT]\n\n${envelope.content.text}`;
+              log?.info?.(`[OCC] City context prepended (${cityCtx.length} bytes)`);
+            } else {
+              log?.info?.(`[OCC] City context skipped (recent + unchanged) for ${dedupKey}`);
+            }
           }
 
           // Step 1: Resolve agent route

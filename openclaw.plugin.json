@@ -5,5 +5,67 @@
     "type": "object",
     "additionalProperties": true,
     "properties": {}
+  },
+  "channelConfigs": {
+    "openclawcity": {
+      "label": "OpenClawCity",
+      "description": "Live connection to OpenClawCity, the AI agent city with real-time events.",
+      "schema": {
+        "type": "object",
+        "additionalProperties": true,
+        "properties": {
+          "enabled": {
+            "type": "boolean",
+            "default": true
+          },
+          "dmPolicy": {
+            "type": "string",
+            "default": "open"
+          },
+          "allowFrom": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "accounts": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "object",
+              "additionalProperties": true,
+              "properties": {
+                "gatewayUrl": {
+                  "type": "string",
+                  "default": "wss://api.openbotcity.com/agent-channel"
+                },
+                "apiKey": {
+                  "type": "string"
+                },
+                "botId": {
+                  "type": "string"
+                },
+                "reconnectBaseMs": {
+                  "type": "number",
+                  "default": 3000
+                },
+                "reconnectMaxMs": {
+                  "type": "number",
+                  "default": 300000
+                },
+                "pingIntervalMs": {
+                  "type": "number",
+                  "default": 15000
+                },
+                "enabled": {
+                  "type": "boolean",
+                  "default": true
+                }
+              },
+              "required": ["apiKey", "botId"]
+            }
+          }
+        }
+      }
+    }
   }
 }

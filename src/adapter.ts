@@ -23,6 +23,10 @@ export interface AdapterOptions {
   onWelcome?: (welcome: WelcomeFrame) => void;
   onError?: (error: ErrorFrame) => void;
   onStateChange?: (state: ConnectionState) => void;
+  /** Called with the fresh JWT after a successful automatic token refresh. */
+  onTokenRefresh?: (jwt: string) => void | Promise<void>;
+  /** Called when the adapter stops permanently (auth failure after refresh attempt). */
+  onPermanentStop?: (reason: string) => void;
   logger?: {
     info?: (...args: unknown[]) => void;
     warn?: (...args: unknown[]) => void;
@@ -53,7 +57,12 @@ export class OpenClawCityAdapter {
 
   private readonly gatewayUrl: string;
   private readonly botId: string;
-  private readonly token: string;
+  private token: string; // mutable: replaced by automatic refresh on token_expired
+  private readonly restBase: string;
+  private refreshAttempted = false;
+  private lastPongAt = 0;
+  private readonly dispatchFailures = new Map<number, number>();
+  private readonly replyQueue: AgentReply[] = [];
   private readonly reconnectBaseMs: number;
   private readonly reconnectMaxMs: number;
   private readonly pingIntervalMs: number;
@@ -61,6 +70,8 @@ export class OpenClawCityAdapter {
   private readonly onWelcome: AdapterOptions['onWelcome'];
   private readonly onError: AdapterOptions['onError'];
   private readonly onStateChange: AdapterOptions['onStateChange'];
+  private readonly onTokenRefresh: AdapterOptions['onTokenRefresh'];
+  private readonly onPermanentStop: AdapterOptions['onPermanentStop'];
   private readonly logger: NonNullable<AdapterOptions['logger']>;
 
   constructor(opts: AdapterOptions) {
@@ -74,7 +85,16 @@ export class OpenClawCityAdapter {
     this.onWelcome = opts.onWelcome;
     this.onError = opts.onError;
     this.onStateChange = opts.onStateChange;
+    this.onTokenRefresh = opts.onTokenRefresh;
+    this.onPermanentStop = opts.onPermanentStop;
     this.logger = opts.logger ?? {};
+    // REST base for /agents/refresh: wss://host/agent-channel -> https://host
+    try {
+      const u = new URL(this.gatewayUrl);
+      this.restBase = `${u.protocol === 'wss:' ? 'https:' : 'http:'}//${u.host}`;
+    } catch {
+      this.restBase = 'https://api.openbotcity.com';
+    }
 
     this.done = new Promise<void>((resolve) => { this.doneResolve = resolve; });
 
@@ -122,7 +142,18 @@ export class OpenClawCityAdapter {
   }
 
   sendReply(reply: AgentReply): void {
-    this.send(reply);
+    // Replies produced mid-reconnect used to be silently dropped (send() no-ops
+    // on a non-OPEN socket). Queue them and flush on the next welcome.
+    if (this.ws?.readyState === WebSocket.OPEN) {
+      this.send(reply);
+      return;
+    }
+    if (this.replyQueue.length >= 20) {
+      this.replyQueue.shift();
+      this.logger.warn?.('[OCC] Reply queue full — dropped oldest queued reply');
+    }
+    this.replyQueue.push(reply);
+    this.logger.warn?.(`[OCC] Socket not open — queued reply (${this.replyQueue.length} queued)`);
   }
 
   getState(): ConnectionState {
@@ -194,8 +225,11 @@ export class OpenClawCityAdapter {
         const raw = data.toString();
 
         // Bare "pong" is the auto-response to our "ping" keep-alive.
-        // Not JSON — just ignore it silently.
-        if (raw === 'pong') return;
+        // Track it for zombie-socket detection (laptop sleep / half-open TCP).
+        if (raw === 'pong') {
+          this.lastPongAt = Date.now();
+          return;
+        }
 
         this.logger.info?.(`[OCC] Raw frame received (${raw.length} bytes): ${raw.slice(0, 300)}`);
         const frame = this.parseFrame(data);
@@ -273,7 +307,16 @@ export class OpenClawCityAdapter {
     this.setState(ConnectionState.CONNECTED);
     this.attemptCount = 0;
     this.reconnecting = false;
+    this.refreshAttempted = false;
+    this.lastPongAt = Date.now();
     this.paused = welcome.paused ?? false;
+
+    // Flush replies queued while the socket was down
+    if (this.replyQueue.length > 0) {
+      this.logger.info?.(`[OCC] Flushing ${this.replyQueue.length} queued replies`);
+      const queued = this.replyQueue.splice(0, this.replyQueue.length);
+      for (const reply of queued) this.send(reply);
+    }
 
     // Send an immediate heartbeat so the server knows we're alive.
     // Must be a bare "ping" string — Cloudflare Hibernation API does
@@ -334,11 +377,23 @@ export class OpenClawCityAdapter {
       await this.onMessage(envelope);
       this.logger.info?.(`[OCC] handleCityEvent onMessage OK: seq=${event.seq}`);
       this.sendAck(event.seq);
+      this.dispatchFailures.delete(Number(event.seq));
     } catch (err) {
-      this.logger.error?.(`[OCC] handleCityEvent FAILED: seq=${event.seq} error=${String(err)}`);
-      // Still ack so the server doesn't replay indefinitely.
-      // The event was received; the dispatch error is on our side.
-      this.sendAck(event.seq);
+      const seqNum = Number(event.seq);
+      const failures = (this.dispatchFailures.get(seqNum) ?? 0) + 1;
+      this.logger.error?.(`[OCC] handleCityEvent FAILED (attempt ${failures}): seq=${event.seq} error=${String(err)}`);
+      if (failures >= 3) {
+        // Poison pill — ack so the server stops replaying, and give up on it.
+        this.logger.error?.(`[OCC] Giving up on seq=${event.seq} after ${failures} dispatch failures`);
+        this.dispatchFailures.delete(seqNum);
+        this.sendAck(event.seq);
+      } else {
+        // Do NOT ack: a transient dispatch error (LLM/session hiccup) used to
+        // permanently drop the event. Leaving it unacked lets the server's
+        // drain alarm redeliver it.
+        if (this.dispatchFailures.size > 200) this.dispatchFailures.clear();
+        this.dispatchFailures.set(seqNum, failures);
+      }
     }
   }
 
@@ -347,7 +402,10 @@ export class OpenClawCityAdapter {
     this.onError?.(frame);
 
     if (frame.reason === 'auth_failed' || frame.reason === 'token_expired') {
-      this.stop();
+      // Previously: permanent silent death (every bot hit this at the 30-day
+      // JWT mark). The refresh endpoint accepts tokens up to 30 days EXPIRED
+      // and does not blacklist the old one — so try to self-heal first.
+      void this.handleAuthFailure(frame.reason);
     } else if (frame.reason === 'rate_limited' && frame.retryAfter) {
       // Respect the server's retryAfter before next reconnect
       this.clearReconnectTimer();
@@ -356,6 +414,44 @@ export class OpenClawCityAdapter {
         if (!this.stopped) void this.connect();
       }, frame.retryAfter * 1000);
     }
+  }
+
+  private async handleAuthFailure(reason: string): Promise<void> {
+    if (this.refreshAttempted) {
+      this.logger.error?.(`[OCC] ${reason} after a refresh attempt — stopping permanently. Update channels.openclawcity.accounts.default.apiKey and run: openclaw gateway restart`);
+      this.onPermanentStop?.(reason);
+      this.stop();
+      return;
+    }
+    this.refreshAttempted = true;
+
+    try {
+      this.logger.info?.('[OCC] Token rejected — attempting automatic refresh via /agents/refresh');
+      const resp = await fetch(`${this.restBase}/agents/refresh`, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${this.token}`, 'Content-Type': 'application/json' },
+        body: '{}',
+      });
+      const data = (await resp.json().catch(() => null)) as { jwt?: string } | null;
+      if (resp.ok && data?.jwt) {
+        this.token = data.jwt;
+        this.logger.info?.('[OCC] Token refreshed automatically — reconnecting with fresh JWT');
+        try {
+          await this.onTokenRefresh?.(data.jwt);
+        } catch (err) {
+          this.logger.warn?.(`[OCC] onTokenRefresh callback failed: ${String(err)}`);
+        }
+        this.clearReconnectTimer();
+        this.reconnecting = false;
+        if (!this.stopped) void this.connect();
+        return;
+      }
+      this.logger.error?.(`[OCC] Automatic refresh failed (${resp.status}) — stopping. Get a fresh JWT (POST /agents/reconnect with slug + owner email), update channels.openclawcity.accounts.default.apiKey, then: openclaw gateway restart`);
+    } catch (err) {
+      this.logger.error?.(`[OCC] Automatic refresh errored: ${String(err)}`);
+    }
+    this.onPermanentStop?.(reason);
+    this.stop();
   }
 
   private sendAck(seq: number | string): void {
@@ -398,6 +494,14 @@ export class OpenClawCityAdapter {
     this.clearPing();
     this.pingInterval = setInterval(() => {
       if (this.ws?.readyState === WebSocket.OPEN) {
+        // Zombie-socket detection: after laptop sleep or a half-open TCP
+        // connection we keep "pinging" into the void while receiving nothing.
+        // No pong for 3 intervals -> terminate so the close handler reconnects.
+        if (this.lastPongAt > 0 && Date.now() - this.lastPongAt > this.pingIntervalMs * 3) {
+          this.logger.warn?.(`[OCC] No pong for ${Math.round((Date.now() - this.lastPongAt) / 1000)}s — terminating zombie socket`);
+          try { this.ws.terminate(); } catch { /* close handler takes over */ }
+          return;
+        }
         // Bare "ping" string — Cloudflare Hibernation API does exact string
         // matching and auto-responds "pong" without waking the Durable Object.
         // JSON frames like {"type":"ping"} don't match and get dropped.

@@ -249,25 +249,36 @@ describe('OpenClawCityAdapter', () => {
     adapter.stop();
   });
 
-  it('still acks even when onMessage throws', async () => {
+  it('withholds ack on transient dispatch failure so the server can redeliver', async () => {
     const opts = makeOpts({
       onMessage: vi.fn().mockRejectedValue(new Error('dispatch failed')),
     });
     const adapter = await connectAdapter(opts);
 
-    mockWsInstance.sentMessages = [];
-
-    mockWsInstance.emit('message', JSON.stringify({
+    const evt = JSON.stringify({
       type: 'city_event',
       seq: 99,
       eventType: 'dm_message',
       from: { id: 'u1', name: 'Eve' },
       text: 'crash',
       metadata: {},
-    }));
+    });
+
+    mockWsInstance.sentMessages = [];
+    mockWsInstance.emit('message', evt);
     await vi.advanceTimersByTimeAsync(0);
 
-    // Should still have sent ack despite dispatch failure
+    // First failure: NO ack — the event stays replayable server-side
+    expect(mockWsInstance.sentMessages).toHaveLength(0);
+    expect(adapter.getLastAckSeq()).toBe(0);
+
+    // Redeliveries 2 and 3: third failure is treated as a poison pill and acked
+    mockWsInstance.emit('message', evt);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(mockWsInstance.sentMessages).toHaveLength(0);
+
+    mockWsInstance.emit('message', evt);
+    await vi.advanceTimersByTimeAsync(0);
     const ack = JSON.parse(mockWsInstance.sentMessages[0]);
     expect(ack).toEqual({ type: 'ack', seq: 99 });
     expect(adapter.getLastAckSeq()).toBe(99);
@@ -310,32 +321,52 @@ describe('OpenClawCityAdapter', () => {
 
   // ── Error Handling ──
 
-  it('stops on auth_failed error', async () => {
-    const opts = makeOpts();
+  it('stops permanently on auth_failed when the automatic refresh fails', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: false, status: 401, json: async () => ({ error: 'nope' }) });
+    vi.stubGlobal('fetch', fetchMock);
+    const onPermanentStop = vi.fn();
+    const opts = makeOpts({ onPermanentStop });
     const adapter = await connectAdapter(opts);
 
     mockWsInstance.emit(
       'message',
       JSON.stringify({ type: 'error', reason: 'auth_failed', message: 'Bad token' })
     );
+    await vi.waitFor(() => expect(adapter.getState()).toBe(ConnectionState.DISCONNECTED));
 
-    expect(adapter.getState()).toBe(ConnectionState.DISCONNECTED);
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining('/agents/refresh'),
+      expect.objectContaining({ method: 'POST' }),
+    );
+    expect(onPermanentStop).toHaveBeenCalledWith('auth_failed');
     expect(opts.onError).toHaveBeenCalled();
+    vi.unstubAllGlobals();
   });
 
-  it('stops on token_expired error', async () => {
-    const opts = makeOpts();
+  it('self-heals on token_expired via /agents/refresh and reconnects', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 200, json: async () => ({ jwt: 'fresh-jwt' }) });
+    vi.stubGlobal('fetch', fetchMock);
+    const onTokenRefresh = vi.fn();
+    const onPermanentStop = vi.fn();
+    const opts = makeOpts({ onTokenRefresh, onPermanentStop });
     const adapter = await connectAdapter(opts);
 
     mockWsInstance.emit(
       'message',
       JSON.stringify({ type: 'error', reason: 'token_expired' })
     );
+    await vi.waitFor(() => expect(onTokenRefresh).toHaveBeenCalledWith('fresh-jwt'));
 
-    expect(adapter.getState()).toBe(ConnectionState.DISCONNECTED);
+    expect(onPermanentStop).not.toHaveBeenCalled();
+    // Adapter reconnects rather than dying
+    await vi.waitFor(() => expect(adapter.getState()).not.toBe(ConnectionState.DISCONNECTED));
+    adapter.stop();
+    vi.unstubAllGlobals();
   });
 
   it('rejects connect promise if server sends error before welcome', async () => {
+    // Refresh attempt must not hit the real network in tests
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('offline')));
     const opts = makeOpts();
     const adapter = new OpenClawCityAdapter(opts);
 
@@ -349,10 +380,11 @@ describe('OpenClawCityAdapter', () => {
       JSON.stringify({ type: 'error', reason: 'auth_failed', message: 'Invalid JWT' })
     );
 
-    // connect() should reject (not hang forever)
+    // connect() should settle (not hang forever)
     await expect(connectPromise).resolves.toBeUndefined();
-    // adapter stops itself on auth_failed
-    expect(adapter.getState()).toBe(ConnectionState.DISCONNECTED);
+    // adapter attempts a refresh, fails (fetch mocked to reject), stops
+    await vi.waitFor(() => expect(adapter.getState()).toBe(ConnectionState.DISCONNECTED));
+    vi.unstubAllGlobals();
   });
 
   it('respects rate_limited retryAfter', async () => {

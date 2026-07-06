@@ -13,6 +13,7 @@ import { OpenClawCityAdapter } from './adapter.js';
 import { exposeAccountEnv, clearAccountEnv } from './env-bridge.js';
 import type { AgentReply, OpenClawCityAccountConfig } from './types.js';
 import { shouldInjectCityContext, type ContextInjectionRecord } from './context-dedup.js';
+import { loadRefreshedToken, saveRefreshedToken } from './token-cache.js';
 
 const CHANNEL_ID = 'openclawcity';
 const DEFAULT_API_BASE = 'https://api.openbotcity.com';
@@ -174,16 +175,39 @@ const occPlugin = {
       // and bot re-registrations that change the bot_id + JWT).
       // Per-account scoped vars prevent identity confusion in multi-agent setups.
       const accountCount = occPlugin.config.listAccountIds(cfg).length || 1;
-      exposeAccountEnv(account.apiKey, account.botId, accountId, accountCount);
+
+      // Prefer a previously auto-refreshed JWT over the config token — but only
+      // while the config token is unchanged (a deliberate re-key always wins).
+      const cachedJwt = loadRefreshedToken(accountId, account.apiKey);
+      let currentApiKey = cachedJwt ?? account.apiKey;
+      if (cachedJwt) log?.info?.(`[OCC] Using cached auto-refreshed JWT for ${accountId}`);
+      exposeAccountEnv(currentApiKey, account.botId, accountId, accountCount);
 
       // Report initial status so the gateway knows we're starting up
       ctx.setStatus({ accountId, running: true, connected: false, lastStartAt: Date.now() });
       log?.info?.(`[OCC] setStatus: running=true, connected=false`);
 
       const adapter = new OpenClawCityAdapter({
-        config: account,
+        config: { ...account, apiKey: currentApiKey },
         logger: log,
         signal: abortSignal,
+        onTokenRefresh: (jwt) => {
+          currentApiKey = jwt;
+          saveRefreshedToken(accountId, account.apiKey, jwt);
+          exposeAccountEnv(jwt, account.botId, accountId, accountCount);
+          log?.info?.(`[OCC] Refreshed JWT persisted for ${accountId} (config untouched — HEARTBEAT.md rotation still applies)`);
+        },
+        onPermanentStop: (reason) => {
+          // Honest status for the one case where the adapter gives up for good.
+          // Transient drops still self-heal internally and are not reported
+          // (the gateway health-monitor would fight our reconnect logic).
+          ctx.setStatus({
+            ...ctx.getStatus(),
+            connected: false,
+            lastError: `${reason}: channel stopped. Get a fresh JWT (POST /agents/reconnect with slug + owner email), update channels.openclawcity.accounts.default.apiKey, then run: openclaw gateway restart`,
+          });
+          log?.error?.(`[OCC] setStatus: connected=false (permanent stop: ${reason})`);
+        },
         onMessage: async (envelope) => {
           log?.info?.(`[OCC] Event received: ${envelope.id} from=${envelope.sender.name} type=${envelope.metadata.eventType}`);
 
@@ -192,7 +216,7 @@ const occPlugin = {
           // within the cache window, so re-prepending it on every burst event just
           // bloats the agent's history (Aaga loop, 2026-06-30) with no new info.
           const apiBase = deriveApiBase(account.gatewayUrl);
-          const cityCtx = await fetchHeartbeatContext(apiBase, account.apiKey, accountId, log);
+          const cityCtx = await fetchHeartbeatContext(apiBase, currentApiKey, accountId, log);
           if (cityCtx) {
             const dedupKey = `${accountId}:${envelope.sender.id}`;
             if (shouldInjectCityContext(contextInjectionState, dedupKey, cityCtx, Date.now(), CONTEXT_REINJECT_WINDOW_MS)) {
@@ -314,7 +338,13 @@ const occPlugin = {
                       action: 'owner_reply',
                       message: text,
                     });
-                  } else if (eventType === 'dm_message' && conversationId) {
+                  } else if (eventType === 'dm_message' || eventType === 'dm' || eventType === 'dm_approved') {
+                    if (!conversationId) {
+                      // NEVER fall through to public speak for a DM reply — that
+                      // leaks a private message into the zone.
+                      log?.error?.(`[OCC] DM event without conversationId — reply withheld (would have leaked to public zone)`);
+                      return;
+                    }
                     action = 'dm_reply';
                     adapter.sendReply({
                       type: 'agent_reply',
@@ -323,7 +353,8 @@ const occPlugin = {
                       conversation_id: conversationId,
                     });
                   } else {
-                    // chat_mention, dm_request, proposals, etc. → speak in zone
+                    // chat_mention, building_chat, proposals, etc. → speak in the
+                    // current room (server resolves zone vs building session)
                     action = 'speak';
                     adapter.sendReply({
                       type: 'agent_reply',

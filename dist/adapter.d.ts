@@ -6,6 +6,10 @@ export interface AdapterOptions {
     onWelcome?: (welcome: WelcomeFrame) => void;
     onError?: (error: ErrorFrame) => void;
     onStateChange?: (state: ConnectionState) => void;
+    /** Called with the fresh JWT after a successful automatic token refresh. */
+    onTokenRefresh?: (jwt: string) => void | Promise<void>;
+    /** Called when the adapter stops permanently (auth failure after refresh attempt). */
+    onPermanentStop?: (reason: string) => void;
     logger?: {
         info?: (...args: unknown[]) => void;
         warn?: (...args: unknown[]) => void;
@@ -29,7 +33,12 @@ export declare class OpenClawCityAdapter {
     readonly done: Promise<void>;
     private readonly gatewayUrl;
     private readonly botId;
-    private readonly token;
+    private token;
+    private readonly restBase;
+    private refreshAttempted;
+    private lastPongAt;
+    private readonly dispatchFailures;
+    private readonly replyQueue;
     private readonly reconnectBaseMs;
     private readonly reconnectMaxMs;
     private readonly pingIntervalMs;
@@ -37,6 +46,8 @@ export declare class OpenClawCityAdapter {
     private readonly onWelcome;
     private readonly onError;
     private readonly onStateChange;
+    private readonly onTokenRefresh;
+    private readonly onPermanentStop;
     private readonly logger;
     constructor(opts: AdapterOptions);
     connect(): Promise<void>;
@@ -53,6 +64,7 @@ export declare class OpenClawCityAdapter {
     private handleFrame;
     private handleCityEvent;
     private handleError;
+    private handleAuthFailure;
     private sendAck;
     private scheduleReconnect;
     calculateBackoff(attempt: number): number;

@@ -2233,7 +2233,7 @@ var require_websocket = __commonJS({
     var http = __require("http");
     var net = __require("net");
     var tls = __require("tls");
-    var { randomBytes, createHash } = __require("crypto");
+    var { randomBytes, createHash: createHash2 } = __require("crypto");
     var { Duplex, Readable } = __require("stream");
     var { URL: URL2 } = __require("url");
     var PerMessageDeflate = require_permessage_deflate();
@@ -2893,7 +2893,7 @@ var require_websocket = __commonJS({
           abortHandshake(websocket, socket, "Invalid Upgrade header");
           return;
         }
-        const digest = createHash("sha1").update(key + GUID).digest("base64");
+        const digest = createHash2("sha1").update(key + GUID).digest("base64");
         if (res.headers["sec-websocket-accept"] !== digest) {
           abortHandshake(websocket, socket, "Invalid Sec-WebSocket-Accept header");
           return;
@@ -3260,7 +3260,7 @@ var require_websocket_server = __commonJS({
     var EventEmitter = __require("events");
     var http = __require("http");
     var { Duplex } = __require("stream");
-    var { createHash } = __require("crypto");
+    var { createHash: createHash2 } = __require("crypto");
     var extension = require_extension();
     var PerMessageDeflate = require_permessage_deflate();
     var subprotocol = require_subprotocol();
@@ -3561,7 +3561,7 @@ var require_websocket_server = __commonJS({
           );
         }
         if (this._state > RUNNING) return abortHandshake(socket, 503);
-        const digest = createHash("sha1").update(key + GUID).digest("base64");
+        const digest = createHash2("sha1").update(key + GUID).digest("base64");
         const headers = [
           "HTTP/1.1 101 Switching Protocols",
           "Upgrade: websocket",
@@ -3756,6 +3756,12 @@ var OpenClawCityAdapter = class {
   gatewayUrl;
   botId;
   token;
+  // mutable: replaced by automatic refresh on token_expired
+  restBase;
+  refreshAttempted = false;
+  lastPongAt = 0;
+  dispatchFailures = /* @__PURE__ */ new Map();
+  replyQueue = [];
   reconnectBaseMs;
   reconnectMaxMs;
   pingIntervalMs;
@@ -3763,6 +3769,8 @@ var OpenClawCityAdapter = class {
   onWelcome;
   onError;
   onStateChange;
+  onTokenRefresh;
+  onPermanentStop;
   logger;
   constructor(opts) {
     this.gatewayUrl = opts.config.gatewayUrl ?? DEFAULT_GATEWAY_URL;
@@ -3775,7 +3783,15 @@ var OpenClawCityAdapter = class {
     this.onWelcome = opts.onWelcome;
     this.onError = opts.onError;
     this.onStateChange = opts.onStateChange;
+    this.onTokenRefresh = opts.onTokenRefresh;
+    this.onPermanentStop = opts.onPermanentStop;
     this.logger = opts.logger ?? {};
+    try {
+      const u = new URL(this.gatewayUrl);
+      this.restBase = `${u.protocol === "wss:" ? "https:" : "http:"}//${u.host}`;
+    } catch {
+      this.restBase = "https://api.openbotcity.com";
+    }
     this.done = new Promise((resolve) => {
       this.doneResolve = resolve;
     });
@@ -3814,7 +3830,16 @@ var OpenClawCityAdapter = class {
     this.doneResolve?.();
   }
   sendReply(reply) {
-    this.send(reply);
+    if (this.ws?.readyState === wrapper_default.OPEN) {
+      this.send(reply);
+      return;
+    }
+    if (this.replyQueue.length >= 20) {
+      this.replyQueue.shift();
+      this.logger.warn?.("[OCC] Reply queue full \u2014 dropped oldest queued reply");
+    }
+    this.replyQueue.push(reply);
+    this.logger.warn?.(`[OCC] Socket not open \u2014 queued reply (${this.replyQueue.length} queued)`);
   }
   getState() {
     return this.state;
@@ -3864,8 +3889,10 @@ var OpenClawCityAdapter = class {
       });
       ws.on("message", (data) => {
         const raw = data.toString();
-        if (raw === "pong")
+        if (raw === "pong") {
+          this.lastPongAt = Date.now();
           return;
+        }
         this.logger.info?.(`[OCC] Raw frame received (${raw.length} bytes): ${raw.slice(0, 300)}`);
         const frame = this.parseFrame(data);
         if (!frame)
@@ -3929,7 +3956,15 @@ var OpenClawCityAdapter = class {
     this.setState(ConnectionState.CONNECTED);
     this.attemptCount = 0;
     this.reconnecting = false;
+    this.refreshAttempted = false;
+    this.lastPongAt = Date.now();
     this.paused = welcome.paused ?? false;
+    if (this.replyQueue.length > 0) {
+      this.logger.info?.(`[OCC] Flushing ${this.replyQueue.length} queued replies`);
+      const queued = this.replyQueue.splice(0, this.replyQueue.length);
+      for (const reply of queued)
+        this.send(reply);
+    }
     if (this.ws?.readyState === wrapper_default.OPEN) {
       this.ws.send("ping");
     }
@@ -3977,16 +4012,27 @@ var OpenClawCityAdapter = class {
       await this.onMessage(envelope);
       this.logger.info?.(`[OCC] handleCityEvent onMessage OK: seq=${event.seq}`);
       this.sendAck(event.seq);
+      this.dispatchFailures.delete(Number(event.seq));
     } catch (err) {
-      this.logger.error?.(`[OCC] handleCityEvent FAILED: seq=${event.seq} error=${String(err)}`);
-      this.sendAck(event.seq);
+      const seqNum = Number(event.seq);
+      const failures = (this.dispatchFailures.get(seqNum) ?? 0) + 1;
+      this.logger.error?.(`[OCC] handleCityEvent FAILED (attempt ${failures}): seq=${event.seq} error=${String(err)}`);
+      if (failures >= 3) {
+        this.logger.error?.(`[OCC] Giving up on seq=${event.seq} after ${failures} dispatch failures`);
+        this.dispatchFailures.delete(seqNum);
+        this.sendAck(event.seq);
+      } else {
+        if (this.dispatchFailures.size > 200)
+          this.dispatchFailures.clear();
+        this.dispatchFailures.set(seqNum, failures);
+      }
     }
   }
   handleError(frame) {
     this.logger.error?.(`Server error: ${frame.reason} \u2014 ${frame.message ?? ""}`);
     this.onError?.(frame);
     if (frame.reason === "auth_failed" || frame.reason === "token_expired") {
-      this.stop();
+      void this.handleAuthFailure(frame.reason);
     } else if (frame.reason === "rate_limited" && frame.retryAfter) {
       this.clearReconnectTimer();
       this.reconnectTimer = setTimeout(() => {
@@ -3995,6 +4041,43 @@ var OpenClawCityAdapter = class {
           void this.connect();
       }, frame.retryAfter * 1e3);
     }
+  }
+  async handleAuthFailure(reason) {
+    if (this.refreshAttempted) {
+      this.logger.error?.(`[OCC] ${reason} after a refresh attempt \u2014 stopping permanently. Update channels.openclawcity.accounts.default.apiKey and run: openclaw gateway restart`);
+      this.onPermanentStop?.(reason);
+      this.stop();
+      return;
+    }
+    this.refreshAttempted = true;
+    try {
+      this.logger.info?.("[OCC] Token rejected \u2014 attempting automatic refresh via /agents/refresh");
+      const resp = await fetch(`${this.restBase}/agents/refresh`, {
+        method: "POST",
+        headers: { "Authorization": `Bearer ${this.token}`, "Content-Type": "application/json" },
+        body: "{}"
+      });
+      const data = await resp.json().catch(() => null);
+      if (resp.ok && data?.jwt) {
+        this.token = data.jwt;
+        this.logger.info?.("[OCC] Token refreshed automatically \u2014 reconnecting with fresh JWT");
+        try {
+          await this.onTokenRefresh?.(data.jwt);
+        } catch (err) {
+          this.logger.warn?.(`[OCC] onTokenRefresh callback failed: ${String(err)}`);
+        }
+        this.clearReconnectTimer();
+        this.reconnecting = false;
+        if (!this.stopped)
+          void this.connect();
+        return;
+      }
+      this.logger.error?.(`[OCC] Automatic refresh failed (${resp.status}) \u2014 stopping. Get a fresh JWT (POST /agents/reconnect with slug + owner email), update channels.openclawcity.accounts.default.apiKey, then: openclaw gateway restart`);
+    } catch (err) {
+      this.logger.error?.(`[OCC] Automatic refresh errored: ${String(err)}`);
+    }
+    this.onPermanentStop?.(reason);
+    this.stop();
   }
   sendAck(seq) {
     const seqNum = Number(seq);
@@ -4029,6 +4112,14 @@ var OpenClawCityAdapter = class {
     this.clearPing();
     this.pingInterval = setInterval(() => {
       if (this.ws?.readyState === wrapper_default.OPEN) {
+        if (this.lastPongAt > 0 && Date.now() - this.lastPongAt > this.pingIntervalMs * 3) {
+          this.logger.warn?.(`[OCC] No pong for ${Math.round((Date.now() - this.lastPongAt) / 1e3)}s \u2014 terminating zombie socket`);
+          try {
+            this.ws.terminate();
+          } catch {
+          }
+          return;
+        }
         this.ws.send("ping");
       }
     }, this.pingIntervalMs);
@@ -4078,6 +4169,41 @@ function shouldInjectCityContext(state, key, ctx, now, windowMs) {
     state.set(key, { at: now, ctx });
   }
   return inject;
+}
+
+// .tsc-out/token-cache.js
+import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
+import { join } from "node:path";
+import { homedir } from "node:os";
+import { createHash } from "node:crypto";
+var CACHE_DIR = join(homedir(), ".openclaw");
+var CACHE_FILE = join(CACHE_DIR, "openclawcity-tokens.json");
+function hashKey(key) {
+  return createHash("sha256").update(key).digest("hex").slice(0, 32);
+}
+function readCache() {
+  try {
+    return JSON.parse(readFileSync(CACHE_FILE, "utf-8"));
+  } catch {
+    return {};
+  }
+}
+function loadRefreshedToken(accountId, configApiKey) {
+  const entry = readCache()[accountId];
+  if (!entry)
+    return null;
+  if (entry.sourceKeyHash !== hashKey(configApiKey))
+    return null;
+  return entry.jwt || null;
+}
+function saveRefreshedToken(accountId, configApiKey, jwt) {
+  try {
+    const cache = readCache();
+    cache[accountId] = { sourceKeyHash: hashKey(configApiKey), jwt, savedAt: (/* @__PURE__ */ new Date()).toISOString() };
+    mkdirSync(CACHE_DIR, { recursive: true });
+    writeFileSync(CACHE_FILE, JSON.stringify(cache, null, 2), { mode: 384 });
+  } catch {
+  }
 }
 
 // .tsc-out/index.js
@@ -4193,17 +4319,35 @@ var occPlugin = {
       const { cfg, accountId, account, abortSignal, log } = ctx;
       log?.info?.(`[OCC] startAccount called for ${accountId}, abortSignal.aborted=${abortSignal.aborted}`);
       const accountCount = occPlugin.config.listAccountIds(cfg).length || 1;
-      exposeAccountEnv(account.apiKey, account.botId, accountId, accountCount);
+      const cachedJwt = loadRefreshedToken(accountId, account.apiKey);
+      let currentApiKey = cachedJwt ?? account.apiKey;
+      if (cachedJwt)
+        log?.info?.(`[OCC] Using cached auto-refreshed JWT for ${accountId}`);
+      exposeAccountEnv(currentApiKey, account.botId, accountId, accountCount);
       ctx.setStatus({ accountId, running: true, connected: false, lastStartAt: Date.now() });
       log?.info?.(`[OCC] setStatus: running=true, connected=false`);
       const adapter = new OpenClawCityAdapter({
-        config: account,
+        config: { ...account, apiKey: currentApiKey },
         logger: log,
         signal: abortSignal,
+        onTokenRefresh: (jwt) => {
+          currentApiKey = jwt;
+          saveRefreshedToken(accountId, account.apiKey, jwt);
+          exposeAccountEnv(jwt, account.botId, accountId, accountCount);
+          log?.info?.(`[OCC] Refreshed JWT persisted for ${accountId} (config untouched \u2014 HEARTBEAT.md rotation still applies)`);
+        },
+        onPermanentStop: (reason) => {
+          ctx.setStatus({
+            ...ctx.getStatus(),
+            connected: false,
+            lastError: `${reason}: channel stopped. Get a fresh JWT (POST /agents/reconnect with slug + owner email), update channels.openclawcity.accounts.default.apiKey, then run: openclaw gateway restart`
+          });
+          log?.error?.(`[OCC] setStatus: connected=false (permanent stop: ${reason})`);
+        },
         onMessage: async (envelope) => {
           log?.info?.(`[OCC] Event received: ${envelope.id} from=${envelope.sender.name} type=${envelope.metadata.eventType}`);
           const apiBase = deriveApiBase(account.gatewayUrl);
-          const cityCtx = await fetchHeartbeatContext(apiBase, account.apiKey, accountId, log);
+          const cityCtx = await fetchHeartbeatContext(apiBase, currentApiKey, accountId, log);
           if (cityCtx) {
             const dedupKey = `${accountId}:${envelope.sender.id}`;
             if (shouldInjectCityContext(contextInjectionState, dedupKey, cityCtx, Date.now(), CONTEXT_REINJECT_WINDOW_MS)) {
@@ -4314,7 +4458,11 @@ ${envelope.content.text}`;
                       action: "owner_reply",
                       message: text
                     });
-                  } else if (eventType === "dm_message" && conversationId) {
+                  } else if (eventType === "dm_message" || eventType === "dm" || eventType === "dm_approved") {
+                    if (!conversationId) {
+                      log?.error?.(`[OCC] DM event without conversationId \u2014 reply withheld (would have leaked to public zone)`);
+                      return;
+                    }
                     action = "dm_reply";
                     adapter.sendReply({
                       type: "agent_reply",

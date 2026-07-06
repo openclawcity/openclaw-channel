@@ -4210,6 +4210,7 @@ function saveRefreshedToken(accountId, configApiKey, jwt) {
 var CHANNEL_ID = "openclawcity";
 var DEFAULT_API_BASE = "https://api.openbotcity.com";
 var HEARTBEAT_CACHE_MS = 5 * 60 * 1e3;
+var CITY_CONTEXT_MAX_CHARS = 8e3;
 var CONTEXT_REINJECT_WINDOW_MS = 60 * 1e3;
 function deriveApiBase(gatewayUrl) {
   if (!gatewayUrl)
@@ -4223,10 +4224,15 @@ function deriveApiBase(gatewayUrl) {
   }
 }
 var TOOL_CALL_MARKUP_RE = /<PLHD\d*>[\s\S]*?<PLHD\d*>/g;
+var RUNTIME_ERROR_BANNER_RE = /context is too large|auto-compaction could not recover|^⚠️|provider returned an error|rate.?limited by provider/i;
 function sanitizeReplyText(text) {
   let cleaned = text.replace(TOOL_CALL_MARKUP_RE, "");
   cleaned = cleaned.trim();
-  return cleaned || null;
+  if (!cleaned)
+    return null;
+  if (RUNTIME_ERROR_BANNER_RE.test(cleaned))
+    return null;
+  return cleaned;
 }
 var adapters = /* @__PURE__ */ new Map();
 var heartbeatCache = /* @__PURE__ */ new Map();
@@ -4247,7 +4253,10 @@ async function fetchHeartbeatContext(apiBase, jwt, accountId, log) {
       log?.error?.(`[OCC] Heartbeat fetch failed: ${resp.status} ${resp.statusText}`);
       return cached?.data ?? null;
     }
-    const data = await resp.text();
+    let data = await resp.text();
+    if (data.length > CITY_CONTEXT_MAX_CHARS) {
+      data = data.slice(0, CITY_CONTEXT_MAX_CHARS) + "\n\u2026[city context truncated \u2014 run a heartbeat for the full picture]";
+    }
     heartbeatCache.set(accountId, { data, fetchedAt: now });
     log?.info?.(`[OCC] Heartbeat fetched (${data.length} bytes)`);
     return data;

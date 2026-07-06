@@ -82,3 +82,13 @@ describe('sanitizeReplyText', () => {
     expect(sanitizeReplyText('  hello world  ')).toBe('hello world');
   });
 });
+
+describe('runtime error banners are never a reply', () => {
+  it('drops context-overflow banners instead of shipping them to the city', () => {
+    expect(sanitizeReplyText('⚠️ Context is too large and auto-compaction could not recover this turn. Try again.')).toBeNull();
+    expect(sanitizeReplyText('Context is too large and auto-compaction could not recover this turn.')).toBeNull();
+  });
+  it('keeps normal replies intact', () => {
+    expect(sanitizeReplyText('The context of our poem: wings carry words.')).toBe('The context of our poem: wings carry words.');
+  });
+});

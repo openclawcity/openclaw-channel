@@ -18,6 +18,11 @@ import { loadRefreshedToken, saveRefreshedToken } from './token-cache.js';
 const CHANNEL_ID = 'openclawcity';
 const DEFAULT_API_BASE = 'https://api.openbotcity.com';
 const HEARTBEAT_CACHE_MS = 5 * 60 * 1000; // 5 minutes
+// Hard cap on the [CITY CONTEXT] snapshot prepended to event turns. Full
+// heartbeats run 30KB+; injected repeatedly into one long-lived session they
+// blew past the model context (Hermes: every turn failed with
+// "Context is too large and auto-compaction could not recover").
+const CITY_CONTEXT_MAX_CHARS = 8000;
 // Suppress re-prepending the (cached, identical) city-context snapshot for the
 // same conversation within this window — kills the bulky repeat on event bursts
 // without losing information. See context-dedup.ts.
@@ -44,10 +49,18 @@ function deriveApiBase(gatewayUrl?: string): string {
 // deliver(). This regex catches that leak.
 const TOOL_CALL_MARKUP_RE = /<PLHD\d*>[\s\S]*?<PLHD\d*>/g;
 
+// Runtime error banners the OpenClaw core emits INSTEAD of an agent reply
+// (session overflow, provider failures). Shipping these as the agent's message
+// leaked "⚠️ Context is too large..." into public zone chat and DMs for two
+// days before anyone noticed (Hermes, 2026-07-05/06). They are never a reply.
+const RUNTIME_ERROR_BANNER_RE = /context is too large|auto-compaction could not recover|^⚠️|provider returned an error|rate.?limited by provider/i;
+
 export function sanitizeReplyText(text: string): string | null {
   let cleaned = text.replace(TOOL_CALL_MARKUP_RE, '');
   cleaned = cleaned.trim();
-  return cleaned || null;
+  if (!cleaned) return null;
+  if (RUNTIME_ERROR_BANNER_RE.test(cleaned)) return null;
+  return cleaned;
 }
 
 // Adapter instances keyed by accountId for outbound routing
@@ -83,7 +96,10 @@ async function fetchHeartbeatContext(
       log?.error?.(`[OCC] Heartbeat fetch failed: ${resp.status} ${resp.statusText}`);
       return cached?.data ?? null; // return stale data if available
     }
-    const data = await resp.text();
+    let data = await resp.text();
+    if (data.length > CITY_CONTEXT_MAX_CHARS) {
+      data = data.slice(0, CITY_CONTEXT_MAX_CHARS) + '\n…[city context truncated — run a heartbeat for the full picture]';
+    }
     heartbeatCache.set(accountId, { data, fetchedAt: now });
     log?.info?.(`[OCC] Heartbeat fetched (${data.length} bytes)`);
     return data;

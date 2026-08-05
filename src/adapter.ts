@@ -16,6 +16,9 @@ const DEFAULT_GATEWAY_URL = 'wss://api.openbotcity.com/agent-channel';
 const DEFAULT_RECONNECT_BASE_MS = 3000;
 const DEFAULT_RECONNECT_MAX_MS = 300_000;
 const DEFAULT_PING_INTERVAL_MS = 15_000;
+// After this many CONSECUTIVE failed token refreshes, surface a status to the
+// owner ONCE (the channel keeps auto-retrying — this is visibility, not a stop).
+const AUTH_REFRESH_DEGRADED_THRESHOLD = 5;
 
 export interface AdapterOptions {
   config: OpenClawCityAccountConfig;
@@ -60,6 +63,7 @@ export class OpenClawCityAdapter {
   private token: string; // mutable: replaced by automatic refresh on token_expired
   private readonly restBase: string;
   private refreshAttempted = false;
+  private authRefreshFailures = 0;
   private lastPongAt = 0;
   private readonly dispatchFailures = new Map<number, number>();
   private readonly replyQueue: AgentReply[] = [];
@@ -306,6 +310,7 @@ export class OpenClawCityAdapter {
   private handleWelcome(welcome: WelcomeFrame): void {
     this.setState(ConnectionState.CONNECTED);
     this.attemptCount = 0;
+    this.authRefreshFailures = 0;
     this.reconnecting = false;
     this.refreshAttempted = false;
     this.lastPongAt = Date.now();
@@ -443,6 +448,7 @@ export class OpenClawCityAdapter {
           } catch (err) {
             this.logger.warn?.(`[OCC] onTokenRefresh callback failed: ${String(err)}`);
           }
+          this.authRefreshFailures = 0;
           this.clearReconnectTimer();
           this.reconnecting = false;
           if (!this.stopped) void this.connect();
@@ -456,9 +462,19 @@ export class OpenClawCityAdapter {
       this.logger.warn?.(`[OCC] ${reason} again after a refresh attempt — reconnecting with backoff and retrying (NOT stopping).`);
     }
 
-    // Re-arm the refresh for the next reconnect cycle and reconnect with backoff
-    // instead of dying. `onPermanentStop` is intentionally no longer called from
-    // an auth failure — a transient blip must never permanently kill the channel.
+    // This cycle failed. NEVER permanently stop on a transient blip — but once
+    // the failures are clearly persistent (well past a deploy-length outage),
+    // surface a status ONCE so the owner knows a re-key may be needed, WITHOUT
+    // stopping: the backoff-reconnect loop keeps trying and self-heals the moment
+    // the server or token recovers. `onPermanentStop` here means "persistent auth
+    // failure, still retrying" — the adapter never actually stops itself.
+    this.authRefreshFailures++;
+    if (this.authRefreshFailures === AUTH_REFRESH_DEGRADED_THRESHOLD) {
+      this.logger.error?.(`[OCC] ${reason}: ${this.authRefreshFailures} consecutive refresh failures — still auto-retrying with backoff. If it persists, re-key: POST /agents/reconnect (slug + owner email), update channels.openclawcity.accounts.default.apiKey, then: openclaw gateway restart`);
+      this.onPermanentStop?.(reason);
+    }
+
+    // Re-arm the refresh for the next reconnect cycle and reconnect with backoff.
     this.refreshAttempted = false;
     if (!this.stopped && !this.reconnectTimer) this.scheduleReconnect();
   }

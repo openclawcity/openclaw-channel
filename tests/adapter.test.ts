@@ -357,6 +357,35 @@ describe('OpenClawCityAdapter', () => {
     vi.unstubAllGlobals();
   });
 
+  it('notifies onPermanentStop ONCE after persistent refresh failures but keeps retrying', async () => {
+    // The self-heal must not become a *silent* infinite retry: once failures are
+    // clearly persistent (>= threshold), the owner is notified exactly once — yet
+    // the adapter keeps reconnecting and never actually stops.
+    const fetchMock = vi.fn().mockResolvedValue({ ok: false, status: 503, json: async () => ({}) });
+    vi.stubGlobal('fetch', fetchMock);
+    const onPermanentStop = vi.fn();
+    const opts = makeOpts({ onPermanentStop });
+    const adapter = await connectAdapter(opts);
+    const countBefore = mockWsInstances.length;
+
+    // Drive several failing auth cycles: each auth_failed → failed refresh →
+    // backoff reconnect → fresh socket, which the next iteration fails again.
+    for (let i = 0; i < 7; i++) {
+      mockWsInstance.emit('message', JSON.stringify({ type: 'error', reason: 'auth_failed' }));
+      await vi.advanceTimersByTimeAsync(2000); // settle refresh microtask + fire reconnect timer
+    }
+
+    // Notified exactly once (at the threshold), not on every failure...
+    expect(onPermanentStop).toHaveBeenCalledTimes(1);
+    expect(onPermanentStop).toHaveBeenCalledWith('auth_failed');
+    // ...and it never stopped — it kept spinning up fresh sockets.
+    expect(adapter.getState()).not.toBe(ConnectionState.DISCONNECTED);
+    expect(mockWsInstances.length).toBeGreaterThan(countBefore + 3);
+
+    adapter.stop();
+    vi.unstubAllGlobals();
+  });
+
   it('self-heals on token_expired via /agents/refresh and reconnects', async () => {
     const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 200, json: async () => ({ jwt: 'fresh-jwt' }) });
     vi.stubGlobal('fetch', fetchMock);

@@ -214,15 +214,17 @@ const occPlugin = {
           log?.info?.(`[OCC] Refreshed JWT persisted for ${accountId} (config untouched — HEARTBEAT.md rotation still applies)`);
         },
         onPermanentStop: (reason) => {
-          // Honest status for the one case where the adapter gives up for good.
-          // Transient drops still self-heal internally and are not reported
-          // (the gateway health-monitor would fight our reconnect logic).
+          // Fired ONCE when auth failures are clearly persistent (well past a
+          // transient deploy-length blip). The adapter keeps auto-retrying with
+          // backoff — this only surfaces status so the owner knows a re-key may
+          // be needed; transient drops are still not reported (the gateway
+          // health-monitor would otherwise fight our reconnect logic).
           ctx.setStatus({
             ...ctx.getStatus(),
             connected: false,
-            lastError: `${reason}: channel stopped. Get a fresh JWT (POST /agents/reconnect with slug + owner email), update channels.openclawcity.accounts.default.apiKey, then run: openclaw gateway restart`,
+            lastError: `${reason}: channel auth failing persistently (still auto-retrying). If it does not recover, get a fresh JWT (POST /agents/reconnect with slug + owner email), update channels.openclawcity.accounts.default.apiKey, then run: openclaw gateway restart`,
           });
-          log?.error?.(`[OCC] setStatus: connected=false (permanent stop: ${reason})`);
+          log?.error?.(`[OCC] setStatus: connected=false (persistent auth failure, still retrying: ${reason})`);
         },
         onMessage: async (envelope) => {
           log?.info?.(`[OCC] Event received: ${envelope.id} from=${envelope.sender.name} type=${envelope.metadata.eventType}`);

@@ -16,6 +16,9 @@ const DEFAULT_GATEWAY_URL = 'wss://api.openbotcity.com/agent-channel';
 const DEFAULT_RECONNECT_BASE_MS = 3000;
 const DEFAULT_RECONNECT_MAX_MS = 300_000;
 const DEFAULT_PING_INTERVAL_MS = 15_000;
+// After this many CONSECUTIVE failed token refreshes, surface a status to the
+// owner ONCE (the channel keeps auto-retrying — this is visibility, not a stop).
+const AUTH_REFRESH_DEGRADED_THRESHOLD = 5;
 
 export interface AdapterOptions {
   config: OpenClawCityAccountConfig;
@@ -60,6 +63,7 @@ export class OpenClawCityAdapter {
   private token: string; // mutable: replaced by automatic refresh on token_expired
   private readonly restBase: string;
   private refreshAttempted = false;
+  private authRefreshFailures = 0;
   private lastPongAt = 0;
   private readonly dispatchFailures = new Map<number, number>();
   private readonly replyQueue: AgentReply[] = [];
@@ -306,6 +310,7 @@ export class OpenClawCityAdapter {
   private handleWelcome(welcome: WelcomeFrame): void {
     this.setState(ConnectionState.CONNECTED);
     this.attemptCount = 0;
+    this.authRefreshFailures = 0;
     this.reconnecting = false;
     this.refreshAttempted = false;
     this.lastPongAt = Date.now();
@@ -417,41 +422,61 @@ export class OpenClawCityAdapter {
   }
 
   private async handleAuthFailure(reason: string): Promise<void> {
-    if (this.refreshAttempted) {
-      this.logger.error?.(`[OCC] ${reason} after a refresh attempt — stopping permanently. Update channels.openclawcity.accounts.default.apiKey and run: openclaw gateway restart`);
-      this.onPermanentStop?.(reason);
-      this.stop();
-      return;
-    }
-    this.refreshAttempted = true;
-
-    try {
-      this.logger.info?.('[OCC] Token rejected — attempting automatic refresh via /agents/refresh');
-      const resp = await fetch(`${this.restBase}/agents/refresh`, {
-        method: 'POST',
-        headers: { 'Authorization': `Bearer ${this.token}`, 'Content-Type': 'application/json' },
-        body: '{}',
-      });
-      const data = (await resp.json().catch(() => null)) as { jwt?: string } | null;
-      if (resp.ok && data?.jwt) {
-        this.token = data.jwt;
-        this.logger.info?.('[OCC] Token refreshed automatically — reconnecting with fresh JWT');
-        try {
-          await this.onTokenRefresh?.(data.jwt);
-        } catch (err) {
-          this.logger.warn?.(`[OCC] onTokenRefresh callback failed: ${String(err)}`);
+    // A rejected token used to be permanent death: the first refresh failure
+    // called onPermanentStop() + stop(), so a *transient* /agents/refresh outage
+    // (e.g. during one of our server deploys, or any network blip) killed the
+    // channel forever and the owner had to manually `openclaw gateway restart`.
+    // Instead, self-heal: refresh once per connection cycle, and on ANY failure
+    // reconnect with backoff and let the next cycle retry. The refresh endpoint
+    // accepts tokens up to 30 days expired and never blacklists the old one, so
+    // recovery is almost always possible once the server is reachable again.
+    if (!this.refreshAttempted) {
+      this.refreshAttempted = true;
+      try {
+        this.logger.info?.('[OCC] Token rejected — attempting automatic refresh via /agents/refresh');
+        const resp = await fetch(`${this.restBase}/agents/refresh`, {
+          method: 'POST',
+          headers: { 'Authorization': `Bearer ${this.token}`, 'Content-Type': 'application/json' },
+          body: '{}',
+        });
+        const data = (await resp.json().catch(() => null)) as { jwt?: string } | null;
+        if (resp.ok && data?.jwt) {
+          this.token = data.jwt;
+          this.logger.info?.('[OCC] Token refreshed automatically — reconnecting with fresh JWT');
+          try {
+            await this.onTokenRefresh?.(data.jwt);
+          } catch (err) {
+            this.logger.warn?.(`[OCC] onTokenRefresh callback failed: ${String(err)}`);
+          }
+          this.authRefreshFailures = 0;
+          this.clearReconnectTimer();
+          this.reconnecting = false;
+          if (!this.stopped) void this.connect();
+          return;
         }
-        this.clearReconnectTimer();
-        this.reconnecting = false;
-        if (!this.stopped) void this.connect();
-        return;
+        this.logger.warn?.(`[OCC] Automatic refresh failed (${resp.status}) — will reconnect with backoff and retry (NOT stopping). If it persists, get a fresh JWT (POST /agents/reconnect with slug + owner email) and: openclaw gateway restart`);
+      } catch (err) {
+        this.logger.warn?.(`[OCC] Automatic refresh errored: ${String(err)} — will reconnect with backoff and retry (NOT stopping)`);
       }
-      this.logger.error?.(`[OCC] Automatic refresh failed (${resp.status}) — stopping. Get a fresh JWT (POST /agents/reconnect with slug + owner email), update channels.openclawcity.accounts.default.apiKey, then: openclaw gateway restart`);
-    } catch (err) {
-      this.logger.error?.(`[OCC] Automatic refresh errored: ${String(err)}`);
+    } else {
+      this.logger.warn?.(`[OCC] ${reason} again after a refresh attempt — reconnecting with backoff and retrying (NOT stopping).`);
     }
-    this.onPermanentStop?.(reason);
-    this.stop();
+
+    // This cycle failed. NEVER permanently stop on a transient blip — but once
+    // the failures are clearly persistent (well past a deploy-length outage),
+    // surface a status ONCE so the owner knows a re-key may be needed, WITHOUT
+    // stopping: the backoff-reconnect loop keeps trying and self-heals the moment
+    // the server or token recovers. `onPermanentStop` here means "persistent auth
+    // failure, still retrying" — the adapter never actually stops itself.
+    this.authRefreshFailures++;
+    if (this.authRefreshFailures === AUTH_REFRESH_DEGRADED_THRESHOLD) {
+      this.logger.error?.(`[OCC] ${reason}: ${this.authRefreshFailures} consecutive refresh failures — still auto-retrying with backoff. If it persists, re-key: POST /agents/reconnect (slug + owner email), update channels.openclawcity.accounts.default.apiKey, then: openclaw gateway restart`);
+      this.onPermanentStop?.(reason);
+    }
+
+    // Re-arm the refresh for the next reconnect cycle and reconnect with backoff.
+    this.refreshAttempted = false;
+    if (!this.stopped && !this.reconnectTimer) this.scheduleReconnect();
   }
 
   private sendAck(seq: number | string): void {

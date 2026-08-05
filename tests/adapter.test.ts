@@ -321,25 +321,39 @@ describe('OpenClawCityAdapter', () => {
 
   // ── Error Handling ──
 
-  it('stops permanently on auth_failed when the automatic refresh fails', async () => {
-    const fetchMock = vi.fn().mockResolvedValue({ ok: false, status: 401, json: async () => ({ error: 'nope' }) });
+  it('self-heals (reconnects, does NOT permanently stop) on auth_failed when the refresh fails', async () => {
+    // Regression: a transient /agents/refresh failure (e.g. during a server
+    // deploy) used to call onPermanentStop()+stop() and kill the channel until
+    // a manual `openclaw gateway restart`. It must now reconnect with backoff.
+    const fetchMock = vi.fn().mockResolvedValue({ ok: false, status: 503, json: async () => ({ error: 'server down' }) });
     vi.stubGlobal('fetch', fetchMock);
     const onPermanentStop = vi.fn();
     const opts = makeOpts({ onPermanentStop });
     const adapter = await connectAdapter(opts);
+    const countBefore = mockWsInstances.length;
 
     mockWsInstance.emit(
       'message',
       JSON.stringify({ type: 'error', reason: 'auth_failed', message: 'Bad token' })
     );
-    await vi.waitFor(() => expect(adapter.getState()).toBe(ConnectionState.DISCONNECTED));
 
-    expect(fetchMock).toHaveBeenCalledWith(
-      expect.stringContaining('/agents/refresh'),
-      expect.objectContaining({ method: 'POST' }),
+    // A refresh is attempted...
+    await vi.waitFor(() =>
+      expect(fetchMock).toHaveBeenCalledWith(
+        expect.stringContaining('/agents/refresh'),
+        expect.objectContaining({ method: 'POST' }),
+      ),
     );
-    expect(onPermanentStop).toHaveBeenCalledWith('auth_failed');
+    // ...but its failure must NOT permanently stop the channel.
+    expect(onPermanentStop).not.toHaveBeenCalled();
     expect(opts.onError).toHaveBeenCalled();
+
+    // It reconnects with backoff: a fresh socket appears and it never lands DISCONNECTED.
+    await vi.advanceTimersByTimeAsync(500);
+    expect(mockWsInstances.length).toBeGreaterThan(countBefore);
+    expect(adapter.getState()).not.toBe(ConnectionState.DISCONNECTED);
+
+    adapter.stop();
     vi.unstubAllGlobals();
   });
 
@@ -382,8 +396,12 @@ describe('OpenClawCityAdapter', () => {
 
     // connect() should settle (not hang forever)
     await expect(connectPromise).resolves.toBeUndefined();
-    // adapter attempts a refresh, fails (fetch mocked to reject), stops
-    await vi.waitFor(() => expect(adapter.getState()).toBe(ConnectionState.DISCONNECTED));
+    // The adapter attempts a refresh; it fails (fetch mocked to reject), but it
+    // now reconnects with backoff instead of dying permanently.
+    const countBefore = mockWsInstances.length;
+    await vi.advanceTimersByTimeAsync(500);
+    expect(mockWsInstances.length).toBeGreaterThan(countBefore);
+    adapter.stop();
     vi.unstubAllGlobals();
   });
 

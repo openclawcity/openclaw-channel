@@ -417,41 +417,50 @@ export class OpenClawCityAdapter {
   }
 
   private async handleAuthFailure(reason: string): Promise<void> {
-    if (this.refreshAttempted) {
-      this.logger.error?.(`[OCC] ${reason} after a refresh attempt — stopping permanently. Update channels.openclawcity.accounts.default.apiKey and run: openclaw gateway restart`);
-      this.onPermanentStop?.(reason);
-      this.stop();
-      return;
-    }
-    this.refreshAttempted = true;
-
-    try {
-      this.logger.info?.('[OCC] Token rejected — attempting automatic refresh via /agents/refresh');
-      const resp = await fetch(`${this.restBase}/agents/refresh`, {
-        method: 'POST',
-        headers: { 'Authorization': `Bearer ${this.token}`, 'Content-Type': 'application/json' },
-        body: '{}',
-      });
-      const data = (await resp.json().catch(() => null)) as { jwt?: string } | null;
-      if (resp.ok && data?.jwt) {
-        this.token = data.jwt;
-        this.logger.info?.('[OCC] Token refreshed automatically — reconnecting with fresh JWT');
-        try {
-          await this.onTokenRefresh?.(data.jwt);
-        } catch (err) {
-          this.logger.warn?.(`[OCC] onTokenRefresh callback failed: ${String(err)}`);
+    // A rejected token used to be permanent death: the first refresh failure
+    // called onPermanentStop() + stop(), so a *transient* /agents/refresh outage
+    // (e.g. during one of our server deploys, or any network blip) killed the
+    // channel forever and the owner had to manually `openclaw gateway restart`.
+    // Instead, self-heal: refresh once per connection cycle, and on ANY failure
+    // reconnect with backoff and let the next cycle retry. The refresh endpoint
+    // accepts tokens up to 30 days expired and never blacklists the old one, so
+    // recovery is almost always possible once the server is reachable again.
+    if (!this.refreshAttempted) {
+      this.refreshAttempted = true;
+      try {
+        this.logger.info?.('[OCC] Token rejected — attempting automatic refresh via /agents/refresh');
+        const resp = await fetch(`${this.restBase}/agents/refresh`, {
+          method: 'POST',
+          headers: { 'Authorization': `Bearer ${this.token}`, 'Content-Type': 'application/json' },
+          body: '{}',
+        });
+        const data = (await resp.json().catch(() => null)) as { jwt?: string } | null;
+        if (resp.ok && data?.jwt) {
+          this.token = data.jwt;
+          this.logger.info?.('[OCC] Token refreshed automatically — reconnecting with fresh JWT');
+          try {
+            await this.onTokenRefresh?.(data.jwt);
+          } catch (err) {
+            this.logger.warn?.(`[OCC] onTokenRefresh callback failed: ${String(err)}`);
+          }
+          this.clearReconnectTimer();
+          this.reconnecting = false;
+          if (!this.stopped) void this.connect();
+          return;
         }
-        this.clearReconnectTimer();
-        this.reconnecting = false;
-        if (!this.stopped) void this.connect();
-        return;
+        this.logger.warn?.(`[OCC] Automatic refresh failed (${resp.status}) — will reconnect with backoff and retry (NOT stopping). If it persists, get a fresh JWT (POST /agents/reconnect with slug + owner email) and: openclaw gateway restart`);
+      } catch (err) {
+        this.logger.warn?.(`[OCC] Automatic refresh errored: ${String(err)} — will reconnect with backoff and retry (NOT stopping)`);
       }
-      this.logger.error?.(`[OCC] Automatic refresh failed (${resp.status}) — stopping. Get a fresh JWT (POST /agents/reconnect with slug + owner email), update channels.openclawcity.accounts.default.apiKey, then: openclaw gateway restart`);
-    } catch (err) {
-      this.logger.error?.(`[OCC] Automatic refresh errored: ${String(err)}`);
+    } else {
+      this.logger.warn?.(`[OCC] ${reason} again after a refresh attempt — reconnecting with backoff and retrying (NOT stopping).`);
     }
-    this.onPermanentStop?.(reason);
-    this.stop();
+
+    // Re-arm the refresh for the next reconnect cycle and reconnect with backoff
+    // instead of dying. `onPermanentStop` is intentionally no longer called from
+    // an auth failure — a transient blip must never permanently kill the channel.
+    this.refreshAttempted = false;
+    if (!this.stopped && !this.reconnectTimer) this.scheduleReconnect();
   }
 
   private sendAck(seq: number | string): void {
